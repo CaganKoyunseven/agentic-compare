@@ -11,6 +11,7 @@ scripts/fetch_data.py). Splits: data/splits/game24.json.
 
 import ast
 import csv
+import functools
 import json
 import operator
 import re
@@ -130,7 +131,13 @@ def _start(numbers: list[int]) -> list[tuple[Fraction, str]]:
 
 def count_solutions(numbers: list[int]) -> int:
     """Number of step-by-step solution paths. More paths means an easier puzzle."""
-    return sum(1 for _ in _solution_paths(_start(numbers)))
+    return _count_cached(tuple(sorted(numbers)))
+
+
+@functools.cache
+def _count_cached(numbers: tuple[int, ...]) -> int:
+    # Loading all puzzles counts 1362 puzzles (a few seconds); the cache makes reloads instant.
+    return sum(1 for _ in _solution_paths(_start(list(numbers))))
 
 
 def find_solution(numbers: list[int]) -> str | None:

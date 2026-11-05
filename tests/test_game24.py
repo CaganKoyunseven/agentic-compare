@@ -1,11 +1,14 @@
 """Tests for the Game of 24 task: safe checking, answer extraction, solver, loading."""
 
+import json
+from collections import Counter
 from fractions import Fraction
 
 import pytest
 
 from agentic.tasks.base import Item
 from agentic.tasks.game24 import (
+    SPLITS_FILE,
     Game24Task,
     check_expression,
     count_solutions,
@@ -115,3 +118,18 @@ def test_load_all_items_from_the_csv():
 def test_unknown_split_is_rejected():
     with pytest.raises(ValueError):
         Game24Task().load_items("train")
+
+
+# ---- splits ----
+
+def test_saved_splits_match_the_script_and_follow_the_design():
+    from scripts.make_splits import build_splits
+
+    saved = json.loads(SPLITS_FILE.read_text(encoding="utf-8"))
+    assert saved == build_splits()                    # reproducible from seed and data
+    task = Game24Task()
+    dev, test = task.load_items("dev"), task.load_items("test")
+    assert len(dev) == 12 and len(test) == 60
+    assert not {it.item_id for it in dev} & {it.item_id for it in test}
+    assert Counter(it.difficulty for it in dev) == {"easy": 4, "medium": 4, "hard": 4}
+    assert Counter(it.difficulty for it in test[:30]) == {"easy": 10, "medium": 10, "hard": 10}
