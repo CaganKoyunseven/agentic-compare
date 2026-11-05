@@ -104,3 +104,13 @@ def test_server_error_is_retried():
 
     assert make_client(handler, retries=1).chat([{"role": "user", "content": "hi"}]).text == "Hi!"
     assert len(calls) == 2
+
+
+def test_server_info_reads_version_and_digest():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json={"version": "1.2.3"})
+        return httpx.Response(200, json={"models": [
+            {"name": "other:1b", "digest": "aaa"}, {"name": "fake:3b", "digest": "bbb"}]})
+
+    assert make_client(handler).server_info() == ("1.2.3", "bbb")

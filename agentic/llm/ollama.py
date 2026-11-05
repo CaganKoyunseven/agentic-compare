@@ -73,6 +73,14 @@ class OllamaClient:
             done_reason=data.get("done_reason", ""),
         )
 
+    def server_info(self) -> tuple[str | None, str | None]:
+        """Ollama version and the digest of this client's model, for the run records.
+        Returns None for a value the server does not report."""
+        version = self._http.get("/api/version").json().get("version")
+        models = self._http.get("/api/tags").json().get("models", [])
+        digest = next((m.get("digest") for m in models if m.get("name") == self.model), None)
+        return version, digest
+
     def _post_with_retry(self, path: str, body: dict) -> dict:
         # Retry only connection problems and server errors; a 4xx (for example an unknown
         # model) will not fix itself, so it fails at once.
