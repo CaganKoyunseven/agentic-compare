@@ -24,9 +24,19 @@ def ollama_host() -> str:
     return os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST
 
 
+def _required(var: str) -> str:
+    value = os.environ.get(var, "").strip()
+    if not value:
+        raise RuntimeError(f"{var} is not set. Copy .env.example to .env and set it.")
+    return value
+
+
 def model_name() -> str:
     """Model from .env; raises if it is not set, so a run never uses an unknown model."""
-    name = os.environ.get("MODEL_NAME", "").strip()
-    if not name:
-        raise RuntimeError("MODEL_NAME is not set. Copy .env.example to .env and set it.")
-    return name
+    return _required("MODEL_NAME")
+
+
+def machine_id() -> str:
+    """Name of this computer from .env, stored on every trace line. Timings are only
+    compared within one machine_id."""
+    return _required("MACHINE_ID")

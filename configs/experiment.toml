@@ -1,1 +1,16 @@
-# Benchmark settings. Filled in during the pilot, then frozen.
+# Benchmark settings. Tuned once on the dev set, then frozen.
+# The model comes from MODEL_NAME in .env, the computer name from MACHINE_ID.
+
+# Seed of a run = seed + 1000 * rep + position of the item in its split. All approaches share
+# it for the same (item, rep), and the k-th LLM call inside a run uses seed + k.
+seed = 2026
+reps = 3
+
+# Same settings for every approach (one variable only: the control flow).
+[llm]
+temperature = 0.7
+num_ctx = 4096
+num_predict = 512
+
+# Per-approach settings, filled in as the approaches are built.
+[approaches.baseline]
