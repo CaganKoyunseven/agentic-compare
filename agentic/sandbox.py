@@ -1,15 +1,18 @@
 """
 Sandbox runner for executing model-written Python code safely in an isolated temporary directory.
 Note: Network and memory limits are not enforced as they are not portable across platforms (e.g., Windows).
+Note: On Windows, only the main process is killed on timeout; grandchild processes may survive the kill.
 """
 
-from dataclasses import dataclass
 import os
+import signal
 import subprocess
 import sys
 import tempfile
 import time
-import signal
+from dataclasses import dataclass
+from pathlib import Path
+
 
 @dataclass(frozen=True)
 class SandboxResult:
@@ -19,6 +22,7 @@ class SandboxResult:
     stdout: str
     stderr: str
     duration_ms: int
+
 
 def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 4000) -> SandboxResult:
     # Clean environment: remove secrets
@@ -33,9 +37,8 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
     start_time = time.perf_counter()
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        script_path = os.path.join(tmpdir, "main.py")
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(code)
+        script_path = Path(tmpdir) / "main.py"
+        script_path.write_text(code, encoding="utf-8")
 
         # Platform-specific process group handling
         kwargs = {}
@@ -46,7 +49,7 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
 
         try:
             process = subprocess.Popen(
-                [sys.executable, "-I", script_path],
+                [sys.executable, "-I", str(script_path)],
                 cwd=tmpdir,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
@@ -54,7 +57,7 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
                 env=env,
                 **kwargs
             )
-        except Exception as e:
+        except (OSError, ValueError) as e:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             return SandboxResult(
                 passed=False,
