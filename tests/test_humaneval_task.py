@@ -116,10 +116,46 @@ def test_extract_answer_adds_missing_import(task, item):
     assert extracted.startswith("from typing import List")
 
 
-def test_extract_answer_does_not_duplicate_import(task, item):
+def test_extract_answer_with_own_import_still_runs(task, item):
+    # The prompt's import comes first; repeating it in the model code is harmless.
     text = "from typing import List\n\ndef add(a, b):\n    return a + b"
     extracted = task.extract_answer(item, text)
-    assert extracted.count("from typing import List") == 1
+    assert extracted.startswith("from typing import List")
+    assert task.score(item, extracted).correct is True
+
+
+def test_extract_answer_keeps_prompt_helpers(tmp_path):
+    # Regression: the prompt defines a helper that the entry point calls (like HumanEval/10,
+    # 32, 38, 50). A full-function answer must still see the helper.
+    prompt = (
+        "def double(x):\n"
+        '    """Return twice x."""\n'
+        "    return 2 * x\n"
+        "\n"
+        "\n"
+        "def quadruple(x):\n"
+        '    """Return four times x using double.\n'
+        "    >>> quadruple(2)\n"
+        "    8\n"
+        '    """\n'
+    )
+    record = {
+        "task_id": "Test/1",
+        "prompt": prompt,
+        "entry_point": "quadruple",
+        "canonical_solution": "    return double(double(x))\n",
+        "test": "def check(candidate):\n    assert candidate(3) == 12\n",
+    }
+    path = tmp_path / "helper.jsonl"
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    task = HumanEvalTask(data_path=path)
+    item = task.load_items("all")[0]
+
+    answer = f"{FENCE}python\ndef quadruple(x):\n    return double(double(x))\n{FENCE}"
+    extracted = task.extract_answer(item, answer)
+    assert "def double" in extracted
+    assert task.feedback(item, extracted).ok is True
+    assert task.score(item, extracted).correct is True
 
 
 def test_extract_answer_keeps_repeated_lines(task, item):

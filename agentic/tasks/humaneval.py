@@ -140,7 +140,6 @@ class HumanEvalTask:
         return item.payload["prompt"]
 
     def extract_answer(self, item: Item, model_text: str) -> str:
-        entry_point = item.payload["entry_point"]
         prompt = item.payload["prompt"]
 
         fenced_blocks: list[str] = []
@@ -163,21 +162,11 @@ class HumanEvalTask:
 
         code = fenced_blocks[-1] if fenced_blocks else model_text
 
-        # Body-only completion: put it under the original prompt.
-        if f"def {entry_point}" not in code:
-            code = prompt + "\n" + code
-
-        # Only add import lines from the prompt that are missing; keep the code unchanged.
-        existing = {line.strip() for line in code.splitlines()}
-        missing_imports = [
-            line
-            for line in prompt.splitlines()
-            if line.startswith(("import ", "from ")) and line.strip() not in existing
-        ]
-        if missing_imports:
-            code = "\n".join(missing_imports) + "\n" + code
-
-        return code
+        # Always put the code under the prompt, like the official HumanEval harness. The prompt
+        # brings its imports and any helper functions the entry point calls. A body-only
+        # completion continues the prompt's function; a full `def <entry_point>` in the code
+        # replaces the prompt's stub (signature plus docstring, which is valid Python).
+        return prompt + "\n" + code
 
     def feedback(self, item: Item, answer: str, tests: str | None = None) -> Feedback:
         examples_code = docstring_examples(item.payload["prompt"], item.payload["entry_point"])
