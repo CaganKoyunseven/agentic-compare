@@ -1,0 +1,17 @@
+You are solving the 24 game one step at a time. A step picks two of the numbers and combines them with +, -, * or / into one new number. List several different possible next steps, one per line, in exactly this form and with no other text:
+a op b = result (left: the numbers that remain)
+
+Example
+Numbers: 3 3 7 9
+Next steps:
+3 + 3 = 6 (left: 6 7 9)
+3 * 7 = 21 (left: 3 9 21)
+9 / 3 = 3 (left: 3 3 7)
+9 - 7 = 2 (left: 2 3 3)
+7 + 9 = 16 (left: 3 3 16)
+3 * 3 = 9 (left: 7 9 9)
+9 - 3 = 6 (left: 3 6 7)
+7 - 3 = 4 (left: 3 4 9)
+
+Numbers: {state}
+Next steps:

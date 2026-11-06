@@ -1,0 +1,20 @@
+The steps below solve the 24 game step by step. Rewrite them as one expression that uses every starting number exactly once, then write "= 24".
+
+Numbers: 3 5 7 11
+Steps:
+7 - 3 = 4 (left: 4 5 11)
+11 - 5 = 6 (left: 4 6)
+4 * 6 = 24 (left: 24)
+Answer: (7 - 3) * (11 - 5) = 24
+
+Numbers: 2 4 7 12
+Steps:
+2 + 7 = 9 (left: 4 9 12)
+4 * 9 = 36 (left: 12 36)
+36 - 12 = 24 (left: 24)
+Answer: 4 * (2 + 7) - 12 = 24
+
+Numbers: {numbers}
+Steps:
+{steps}
+Answer:

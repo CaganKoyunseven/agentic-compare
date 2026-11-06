@@ -1,0 +1,31 @@
+Judge whether the given numbers can still make exactly 24 using each number once with + - * /. Try a few combinations, then write one word on the last line:
+sure - you found a way to make 24
+likely - no way found yet, but the numbers are in a reasonable range
+impossible - the numbers are clearly too small or too big
+
+Numbers: 6 18
+6 + 18 = 24
+sure
+
+Numbers: 2 5 7
+5 + 7 = 12, 12 * 2 = 24
+sure
+
+Numbers: 2 2 13
+2 + 2 + 13 = 17
+13 - 2 - 2 = 9
+No way found yet, but the numbers are in a reasonable range
+likely
+
+Numbers: 2 3
+2 + 3 = 5, 2 * 3 = 6, 3 - 2 = 1
+Both numbers are too small
+impossible
+
+Numbers: 12 13 14
+12 + 13 + 14 = 39
+14 - 13 = 1, 1 * 12 = 12
+The numbers are too big to combine into 24
+impossible
+
+Numbers: {state}

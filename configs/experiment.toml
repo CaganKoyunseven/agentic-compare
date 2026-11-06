@@ -14,3 +14,9 @@ num_predict = 512
 
 # Per-approach settings, filled in as the approaches are built.
 [approaches.baseline]
+
+# Tree of Thoughts: each kept node proposes steps, the first `breadth` readable ones become
+# children, each child gets one LLM score, and the best `keep` of the level survive.
+[approaches.tot]
+breadth = 3
+keep = 3
