@@ -1,5 +1,8 @@
 """
 HumanEval task implementation conforming to the Task protocol in agentic/tasks/base.py.
+
+Official tests are kept private: they are read only inside score() and never
+appear in Item.payload, Feedback or Score.
 """
 
 import ast
@@ -9,8 +12,61 @@ import random
 from pathlib import Path
 from typing import Any
 
-from agentic.tasks.base import Item, Feedback, Score
 from agentic.sandbox import run_python
+from agentic.tasks.base import Feedback, Item, Score
+
+_LITERAL_ERRORS = (ValueError, TypeError, SyntaxError, MemoryError, RecursionError)
+
+
+def docstring_examples(prompt: str, entry_point: str) -> list[str]:
+    """Return assert statements built from the entry_point function's docstring examples.
+
+    Best effort: only ">>> expr" lines followed by a literal expected value are used.
+    The same parser is used by feedback() and by scripts/check_humaneval_examples.py.
+    """
+    tree = None
+    for candidate in (prompt, prompt + "\n    pass\n"):
+        try:
+            tree = ast.parse(candidate)
+            break
+        except SyntaxError:
+            continue
+    if tree is None:
+        return []
+
+    doc = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == entry_point:
+            doc = ast.get_docstring(node)
+            break
+    if not doc:
+        return []
+
+    lines = doc.splitlines()
+    examples: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        i += 1
+        if not line.startswith(">>>"):
+            continue
+        expr = line[3:].strip()
+        expected_lines: list[str] = []
+        while i < len(lines):
+            next_line = lines[i].strip()
+            if not next_line or next_line.startswith(">>>"):
+                break
+            expected_lines.append(next_line)
+            i += 1
+        if not expr or not expected_lines:
+            continue
+        try:
+            expected = ast.literal_eval(" ".join(expected_lines))
+        except _LITERAL_ERRORS:
+            continue
+        examples.append(f"assert {expr} == {expected!r}")
+    return examples
+
 
 class HumanEvalTask:
     name: str = "humaneval"
@@ -24,7 +80,7 @@ class HumanEvalTask:
     ):
         if data_path is None:
             data_path = Path("data/humaneval/HumanEval.jsonl.gz")
-        self.data_path = data_path
+        self.data_path = Path(data_path)
         self.seed = seed
         self.dev_size = dev_size
         self.test_size = test_size
@@ -34,33 +90,26 @@ class HumanEvalTask:
 
     def _load_data(self):
         if not self.data_path.exists():
-            mini_path = Path("tests/fixtures/humaneval_mini.jsonl")
-            if mini_path.exists():
-                path_to_use = mini_path
-            else:
-                return
-        else:
-            path_to_use = self.data_path
+            raise FileNotFoundError(
+                f"HumanEval data file not found: {self.data_path}. "
+                "Run scripts/fetch_humaneval.py to download it."
+            )
 
-        if str(path_to_use).endswith(".gz"):
-            opener = gzip.open
-        else:
-            opener = open
+        opener = gzip.open if self.data_path.suffix == ".gz" else open
 
-        with opener(path_to_use, "rt", encoding="utf-8") as f:
+        with opener(self.data_path, "rt", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     record = json.loads(line)
-                    task_id = record["task_id"]
-                    self._items_cache[task_id] = record
+                    self._items_cache[record["task_id"]] = record
 
     def load_items(self, split: str) -> list[Item]:
         task_ids = sorted(self._items_cache.keys())
         rng = random.Random(self.seed)
         rng.shuffle(task_ids)
 
-        dev_ids = task_ids[:self.dev_size]
-        test_ids = task_ids[self.dev_size:self.dev_size + self.test_size]
+        dev_ids = task_ids[: self.dev_size]
+        test_ids = task_ids[self.dev_size : self.dev_size + self.test_size]
 
         if split == "dev":
             selected_ids = dev_ids
@@ -74,16 +123,17 @@ class HumanEvalTask:
         items = []
         for tid in selected_ids:
             rec = self._items_cache[tid]
-            item = Item(
-                item_id=tid,
-                task=self.name,
-                payload={
-                    "prompt": rec["prompt"],
-                    "entry_point": rec["entry_point"],
-                },
-                difficulty=None,
+            items.append(
+                Item(
+                    item_id=tid,
+                    task=self.name,
+                    payload={
+                        "prompt": rec["prompt"],
+                        "entry_point": rec["entry_point"],
+                    },
+                    difficulty=None,
+                )
             )
-            items.append(item)
         return items
 
     def build_prompt(self, item: Item) -> str:
@@ -93,82 +143,44 @@ class HumanEvalTask:
         entry_point = item.payload["entry_point"]
         prompt = item.payload["prompt"]
 
-        fenced_blocks = []
-        lines = model_text.splitlines()
+        fenced_blocks: list[str] = []
         in_fence = False
-        current_fence_lines = []
-        for line in lines:
+        current: list[str] = []
+        for line in model_text.splitlines():
             if line.strip().startswith("```"):
                 if in_fence:
-                    fenced_blocks.append("\n".join(current_fence_lines))
-                    current_fence_lines = []
+                    fenced_blocks.append("\n".join(current))
+                    current = []
                     in_fence = False
                 else:
                     in_fence = True
                 continue
             if in_fence:
-                current_fence_lines.append(line)
+                current.append(line)
+        if in_fence and current:
+            # Unclosed fence (e.g. output cut off by the token limit).
+            fenced_blocks.append("\n".join(current))
 
-        code_to_check = ""
-        if fenced_blocks:
-            code_to_check = fenced_blocks[-1]
-        else:
-            code_to_check = model_text
+        code = fenced_blocks[-1] if fenced_blocks else model_text
 
-        if f"def {entry_point}" not in code_to_check:
-            code_to_check = prompt + "\n" + code_to_check
+        # Body-only completion: put it under the original prompt.
+        if f"def {entry_point}" not in code:
+            code = prompt + "\n" + code
 
-        import_lines = [
-            line for line in prompt.splitlines()
-            if line.startswith("import ") or line.startswith("from ")
+        # Only add import lines from the prompt that are missing; keep the code unchanged.
+        existing = {line.strip() for line in code.splitlines()}
+        missing_imports = [
+            line
+            for line in prompt.splitlines()
+            if line.startswith(("import ", "from ")) and line.strip() not in existing
         ]
-        code_lines = code_to_check.splitlines()
-        final_lines = list(import_lines)
-        for line in code_lines:
-            if line not in final_lines:
-                final_lines.append(line)
+        if missing_imports:
+            code = "\n".join(missing_imports) + "\n" + code
 
-        return "\n".join(final_lines)
+        return code
 
     def feedback(self, item: Item, answer: str, tests: str | None = None) -> Feedback:
-        prompt = item.payload["prompt"]
-
-        examples_code = []
-        docstring_lines = []
-        in_docstring = False
-        for line in prompt.splitlines():
-            if '"""' in line or "'''" in line:
-                if in_docstring:
-                    in_docstring = False
-                    break
-                else:
-                    in_docstring = True
-                    continue
-            if in_docstring:
-                docstring_lines.append(line)
-
-        i = 0
-        while i < len(docstring_lines):
-            line = docstring_lines[i].strip()
-            if line.startswith(">>>"):
-                expr = line[3:].strip()
-                expected_lines = []
-                i += 1
-                while i < len(docstring_lines):
-                    next_line = docstring_lines[i]
-                    if next_line.strip().startswith(">>>") or not next_line.strip():
-                        break
-                    expected_lines.append(next_line.strip())
-                    i += 1
-                if expected_lines:
-                    expected_str = " ".join(expected_lines)
-                    try:
-                        expected_val = ast.literal_eval(expected_str)
-                        examples_code.append(f"assert {expr} == {repr(expected_val)}")
-                    except Exception:
-                        pass
-                continue
-            i += 1
+        examples_code = docstring_examples(item.payload["prompt"], item.payload["entry_point"])
 
         test_code_parts = [answer]
         if examples_code:
@@ -183,12 +195,19 @@ class HumanEvalTask:
 
         result = run_python(full_test_code, timeout_s=5.0)
         ok = result.passed
-        message = "ok" if ok else (result.stderr[-800:] if result.stderr else "failed")
+        if ok:
+            message = "ok"
+        elif result.timed_out:
+            message = "timeout"
+        elif result.stderr:
+            message = result.stderr[-800:]
+        else:
+            message = "failed"
 
         return Feedback(
             ok=ok,
             message=message,
-            details={"duration_ms": result.duration_ms, "timed_out": result.timed_out}
+            details={"duration_ms": result.duration_ms, "timed_out": result.timed_out},
         )
 
     def score(self, item: Item, answer: str) -> Score:
@@ -210,5 +229,5 @@ class HumanEvalTask:
         return Score(
             correct=correct,
             message=message,
-            details={"duration_ms": result.duration_ms}
+            details={"duration_ms": result.duration_ms},
         )

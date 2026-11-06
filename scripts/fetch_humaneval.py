@@ -5,10 +5,13 @@ Saves to data/humaneval/HumanEval.jsonl.gz and verifies record count and schema.
 
 import gzip
 import json
+import sys
 from pathlib import Path
+
 import httpx
 
 URL = "https://github.com/openai/human-eval/raw/master/data/HumanEval.jsonl.gz"
+
 
 def main():
     data_dir = Path("data/humaneval")
@@ -19,10 +22,10 @@ def main():
     try:
         response = httpx.get(URL, follow_redirects=True, timeout=30.0)
         response.raise_for_status()
-    except Exception as e:
+    except (httpx.HTTPError, OSError) as e:
         print(f"Download failed: {e}")
         print("Please check the URL in your browser or internet connection.")
-        return
+        sys.exit(1)
 
     out_path.write_bytes(response.content)
     print(f"Saved to {out_path} ({len(response.content)} bytes).")
@@ -45,8 +48,10 @@ def main():
     print("Verification successful: all 164 records contain expected keys.")
     print("Licence note: MIT License (from openai/human-eval repository).")
 
+
 def record_error(i, missing):
     return f"Record {i} is missing keys: {missing}"
+
 
 if __name__ == "__main__":
     main()
