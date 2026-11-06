@@ -40,7 +40,14 @@ tests/       Unit tests
 
 ## Data sources
 
-- Game of 24: puzzle set from the Tree-of-Thoughts paper authors (Yao et al., 2023). Details TBD.
+- Game of 24: `data/game24/24.csv`, 1362 puzzles from the Tree of Thoughts authors
+  (Yao et al., 2023, "Tree of Thoughts: Deliberate Problem Solving with Large Language Models"),
+  repository [princeton-nlp/tree-of-thought-llm](https://github.com/princeton-nlp/tree-of-thought-llm),
+  MIT licence (copy in `data/game24/LICENSE`). The authors collected the puzzles from 4nums.com.
+  Re-download with `python -m scripts.fetch_data` (pinned commit, SHA-256 checked).
+  Our approaches and prompts are our own. The Tree of Thoughts prompts for Game of 24
+  (`agentic/prompts/game24_tot_*.txt`) follow the step format of the paper
+  ("a op b = c (left: ...)", sure/likely/impossible) with our own wording and examples.
 - HumanEval: OpenAI (Chen et al., 2021). Details TBD.
 
 ## License

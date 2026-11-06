@@ -12,3 +12,4 @@ Thumbs.db
 *.log
 traces/runs/
 *.gguf
+traces/mock/
