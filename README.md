@@ -45,7 +45,9 @@ tests/       Unit tests
   repository [princeton-nlp/tree-of-thought-llm](https://github.com/princeton-nlp/tree-of-thought-llm),
   MIT licence (copy in `data/game24/LICENSE`). The authors collected the puzzles from 4nums.com.
   Re-download with `python -m scripts.fetch_data` (pinned commit, SHA-256 checked).
-  Only the puzzle list is used; our approaches and prompts are our own code.
+  Our approaches and prompts are our own. The Tree of Thoughts prompts for Game of 24
+  (`agentic/prompts/game24_tot_*.txt`) follow the step format of the paper
+  ("a op b = c (left: ...)", sure/likely/impossible) with our own wording and examples.
 - HumanEval: OpenAI (Chen et al., 2021). Details TBD.
 
 ## License

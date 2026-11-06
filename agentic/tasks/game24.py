@@ -140,6 +140,12 @@ def _count_cached(numbers: tuple[int, ...]) -> int:
     return sum(1 for _ in _solution_paths(_start(list(numbers))))
 
 
+def can_reach_24(values: list[Fraction]) -> bool:
+    """True if these numbers (fractions allowed, any count) can still make 24. Used only in
+    analysis, for example to check a ToT scorer's labels; never shown to an approach."""
+    return next(_solution_paths([(v, str(v)) for v in values]), None) is not None
+
+
 def find_solution(numbers: list[int]) -> str | None:
     expr = next(_solution_paths(_start(numbers)), None)
     return expr[1:-1] if expr else None   # drop the outer parentheses

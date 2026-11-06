@@ -1,7 +1,11 @@
 """
 Sandbox runner for executing model-written Python code safely in an isolated temporary directory.
+Output is read while the child runs and only a bounded tail is kept, so a child that prints in an
+endless loop can neither fill the parent's memory nor stretch the timeout.
 Note: Network and memory limits are not enforced as they are not portable across platforms (e.g., Windows).
 Note: On Windows, only the main process is killed on timeout; grandchild processes may survive the kill.
+A surviving grandchild that keeps the output pipe open cannot block the call: the readers are only
+waited for a short grace period.
 """
 
 import os
@@ -9,9 +13,13 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+TRUNCATION_MARKER = "...[truncated]...\n"
+READER_GRACE_S = 1.0     # how long to wait for the output readers after the child has ended
 
 
 @dataclass(frozen=True)
@@ -22,6 +30,37 @@ class SandboxResult:
     stdout: str
     stderr: str
     duration_ms: int
+
+
+class _TailReader(threading.Thread):
+    """Reads a pipe until it closes and keeps only the last `limit_bytes` bytes."""
+
+    def __init__(self, pipe, limit_bytes: int):
+        super().__init__(daemon=True)
+        self.pipe = pipe
+        self.limit_bytes = limit_bytes
+        self.tail = bytearray()
+        self.dropped = False
+
+    def run(self) -> None:
+        try:
+            while chunk := self.pipe.read1(65536):
+                self.tail += chunk
+                if len(self.tail) > self.limit_bytes:
+                    del self.tail[:-self.limit_bytes]
+                    self.dropped = True
+        except (OSError, ValueError):   # pipe closed under us
+            pass
+
+
+def _tail_text(reader: _TailReader, max_chars: int) -> str:
+    """Decode the kept bytes and return at most max_chars characters, marker included."""
+    text = bytes(reader.tail).decode("utf-8", errors="replace")
+    if not reader.dropped and len(text) <= max_chars:
+        return text
+    if max_chars <= len(TRUNCATION_MARKER):
+        return text[-max_chars:] if max_chars > 0 else ""
+    return TRUNCATION_MARKER + text[-(max_chars - len(TRUNCATION_MARKER)):]
 
 
 def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 4000) -> SandboxResult:
@@ -68,9 +107,14 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
                 duration_ms=duration_ms
             )
 
+        # A UTF-8 character has at most 4 bytes, so 4 bytes per character always keep enough.
+        readers = [_TailReader(process.stdout, 4 * max_output_chars),
+                   _TailReader(process.stderr, 4 * max_output_chars)]
+        for reader in readers:
+            reader.start()
+
         try:
-            stdout_bytes, stderr_bytes = process.communicate(timeout=timeout_s)
-            returncode = process.returncode
+            returncode = process.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
             if sys.platform == "win32":
@@ -80,18 +124,16 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
                     os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 except ProcessLookupError:
                     process.kill()
-            stdout_bytes, stderr_bytes = process.communicate()
-            returncode = process.returncode
+            returncode = process.wait()
+
+        deadline = time.perf_counter() + READER_GRACE_S    # one shared grace period
+        for reader in readers:
+            reader.join(timeout=max(0.0, deadline - time.perf_counter()))
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)
 
-        stdout_str = stdout_bytes.decode("utf-8", errors="replace")
-        stderr_str = stderr_bytes.decode("utf-8", errors="replace")
-
-        if len(stdout_str) > max_output_chars:
-            stdout_str = "...[truncated]...\n" + stdout_str[-max_output_chars:]
-        if len(stderr_str) > max_output_chars:
-            stderr_str = "...[truncated]...\n" + stderr_str[-max_output_chars:]
+        stdout_str = _tail_text(readers[0], max_output_chars)
+        stderr_str = _tail_text(readers[1], max_output_chars)
 
         passed = (returncode == 0) and not timed_out
 

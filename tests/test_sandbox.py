@@ -35,17 +35,46 @@ def test_sandbox_timeout():
 
 
 def test_sandbox_output_truncation():
-    code = "print('a' * 5000)"
+    code = "print('a' * 5000 + 'END')"
     result = run_python(code, max_output_chars=100)
-    assert len(result.stdout) <= 120
+    assert len(result.stdout) <= 100
     assert "[truncated]" in result.stdout
+    assert result.stdout.rstrip().endswith("END")      # the tail is kept
+
+
+def test_sandbox_short_output_is_not_truncated():
+    result = run_python("print('x' * 50)", max_output_chars=100)
+    assert result.stdout == "x" * 50 + "\n"
+
+
+def test_sandbox_endless_output_keeps_timeout_and_memory_bounded():
+    code = "import sys\nwhile True:\n    print('x' * 1000)\n    print('e' * 1000, file=sys.stderr)"
+    result = run_python(code, timeout_s=1, max_output_chars=200)
+    assert result.timed_out is True
+    assert result.duration_ms < 5000
+    assert len(result.stdout) <= 200
+    assert len(result.stderr) <= 200
+
+
+def test_sandbox_grandchild_holding_the_pipe_does_not_block():
+    # The child starts a detached grandchild that inherits stdout, then exits at once.
+    code = (
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(4)'],\n"
+        "                 start_new_session=True)\n"
+        "print('child done')\n"
+    )
+    result = run_python(code, timeout_s=5)
+    assert result.passed is True
+    assert "child done" in result.stdout
+    assert result.duration_ms < 2500
 
 
 def test_sandbox_non_ascii():
-    code = "print('Türkçe karakterler: çğüöşİ')"
+    code = "print('naïve café, 日本語, ✓')"
     result = run_python(code)
     assert result.passed is True
-    assert "Türkçe karakterler: çğüöşİ" in result.stdout
+    assert "naïve café, 日本語, ✓" in result.stdout
 
 
 def test_sandbox_clean_environment(monkeypatch):
