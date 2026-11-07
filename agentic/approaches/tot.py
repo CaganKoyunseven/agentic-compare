@@ -11,6 +11,16 @@ Game of 24, following the ToT paper (Yao et al., 2023):
 
 Pure ToT: the model's own steps and "left" numbers are used as written. Code only reads the
 format; it never checks the arithmetic and never feeds the verifier result back.
+
+HumanEval, two levels (plans, then code):
+  0. Tester: one call writes assert lines from the task alone (same prompt as the reflective
+     and multi-agent approaches), so all approaches get the same kind of feedback.
+  1. Proposer: `humaneval_breadth` separate calls, one plan each (no code). Scorer: one call
+     per plan (sure / likely / impossible). Only the best `humaneval_keep` plans survive.
+  2. Coder: the kept plans are turned into code in score order; each code is checked with the
+     docstring examples plus the own tests. The first code that passes is chosen and the
+     search stops. When none passes, the code of the best plan is chosen. Failed codes that
+     were not chosen are pruned. The official tests are never used.
 """
 
 import re
@@ -20,6 +30,7 @@ from typing import Any
 
 from agentic.approaches.base import Caller, load_prompt
 from agentic.approaches.base import user as _user
+from agentic.approaches.reflective import extract_asserts
 from agentic.events import (
     Body,
     FinalAnswer,
@@ -27,13 +38,14 @@ from agentic.events import (
     NodePruned,
     NodeScored,
     PathChosen,
+    TestResult,
 )
 from agentic.llm.base import LLMClient
 from agentic.tasks.base import Item, Task
 from agentic.tasks.game24 import normalize
 
 SCORE_OF_LABEL = {"sure": 1.0, "likely": 0.5, "impossible": 0.0}
-DEFAULTS = {"breadth": 3, "keep": 3}
+DEFAULTS = {"breadth": 3, "keep": 3, "humaneval_breadth": 3, "humaneval_keep": 2}
 
 # "4 + 8 = 12 (left: 6 12)" -> step "4 + 8 = 12", state "6 12"
 _STEP = re.compile(r"^\s*(?:[-*]\s*|\d+[.)]\s+)?(.+?=\s*[^\s(]+)\s*\(\s*left:\s*([^)]*)\)",
@@ -93,10 +105,17 @@ class TreeOfThoughts:
 
     def run(self, item: Item, task: Task, llm: LLMClient, *, seed: int,
             config: dict[str, Any]) -> Iterator[Body]:
-        if task.name != "game24":
-            raise NotImplementedError(f"ToT for {task.name} is not built yet")
         settings = {**DEFAULTS, **config}
         caller = Caller(llm, seed)
+        if task.name == "game24":
+            yield from self._game24(item, task, caller, settings)
+        elif task.name == "humaneval":
+            yield from self._humaneval(item, task, caller, settings)
+        else:
+            raise NotImplementedError(f"ToT for {task.name} is not built yet")
+
+    def _game24(self, item: Item, task: Task, caller: Caller,
+                settings: dict[str, Any]) -> Iterator[Body]:
         numbers = " ".join(str(n) for n in item.payload["numbers"])
 
         root = Node("root", None, 0, "", numbers)
@@ -139,4 +158,64 @@ class TreeOfThoughts:
         yield call
         answer = task.extract_answer(item, call.response)
         yield PathChosen(node_ids=[n.node_id for n in path], answer=answer)
+        yield FinalAnswer(answer=answer)
+
+    def _humaneval(self, item: Item, task: Task, caller: Caller,
+                   settings: dict[str, Any]) -> Iterator[Body]:
+        prompt = item.payload["prompt"]
+        yield NodeAdded(node_id="root", parent_id=None, depth=0, step="", state="task")
+
+        call = caller.chat("tester", _user(load_prompt("reflective_tests_humaneval")
+                                           .format(prompt=prompt)))
+        yield call
+        tests = extract_asserts(call.response)
+
+        # Level 1: plans, each from its own call, then one LLM score per plan.
+        plans: list[Node] = []
+        for i in range(1, settings["humaneval_breadth"] + 1):
+            call = caller.chat("proposer", _user(load_prompt("humaneval_tot_plan")
+                                                 .format(prompt=prompt)))
+            yield call
+            plan = Node(f"p{i}", None, 1, call.response.strip(), "plan")
+            plans.append(plan)
+            yield NodeAdded(node_id=plan.node_id, parent_id="root", depth=1, step=plan.step,
+                            state="plan", call_id=call.call_id)
+        for plan in plans:
+            call = caller.chat("scorer", _user(load_prompt("humaneval_tot_value")
+                                               .format(prompt=prompt, plan=plan.step)))
+            yield call
+            label = parse_label(call.response)
+            plan.score = SCORE_OF_LABEL.get(label, 0.0)
+            yield NodeScored(node_id=plan.node_id, score=plan.score, label=label,
+                             call_id=call.call_id)
+        ranked = sorted(plans, key=lambda n: -n.score)   # stable: ties keep order
+        for plan in ranked[settings["humaneval_keep"]:]:
+            yield NodePruned(node_id=plan.node_id)
+
+        # Level 2: code from the kept plans, best plan first, until one passes the own tests.
+        codes: list[tuple[str, str, str, bool]] = []     # (plan id, code id, answer, passed)
+        for i, plan in enumerate(ranked[:settings["humaneval_keep"]], start=1):
+            call = caller.chat("coder", _user(load_prompt("humaneval_tot_code")
+                                              .format(prompt=prompt, plan=plan.step)))
+            yield call
+            answer = task.extract_answer(item, call.response)
+            node_id = f"k{i}"
+            code = answer.removeprefix(prompt + "\n")    # show only the new code in the tree
+            yield NodeAdded(node_id=node_id, parent_id=plan.node_id, depth=2, step="code",
+                            state=code, call_id=call.call_id)
+            feedback = task.feedback(item, answer, tests)
+            yield TestResult(source="own_tests", ok=feedback.ok, message=feedback.message,
+                             details=feedback.details, node_id=node_id)
+            yield NodeScored(node_id=node_id, score=1.0 if feedback.ok else 0.0,
+                             label="tests passed" if feedback.ok else "tests failed")
+            codes.append((plan.node_id, node_id, answer, feedback.ok))
+            if feedback.ok:
+                break
+
+        # The passing code, or the code of the best plan when none passes.
+        plan_id, chosen_id, answer, _ = next((c for c in codes if c[3]), codes[0])
+        for _, node_id, _, passed in codes:
+            if not passed and node_id != chosen_id:
+                yield NodePruned(node_id=node_id)
+        yield PathChosen(node_ids=["root", plan_id, chosen_id], answer=answer)
         yield FinalAnswer(answer=answer)
