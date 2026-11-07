@@ -147,7 +147,7 @@ class TestResult(_Strict):
 class AgentMessage(_Strict):
     type: Literal["agent_message"] = "agent_message"
     round: int
-    role: str                         # "planner" | "solver" | "critic"
+    role: str                         # "planner" | "solver" | "critic" | "tester" (HumanEval)
     text: str
     call_id: str
 

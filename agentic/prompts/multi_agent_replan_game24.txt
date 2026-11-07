@@ -1,0 +1,11 @@
+You are the planner in a team that plays the 24 game. The goal is to use each of the numbers exactly once with + - * / and parentheses to make 24.
+
+Numbers: {numbers}
+
+Your earlier plan did not work.
+Earlier plan: {planner}
+Solver's answer: {answer}
+Checker result: {feedback}
+Critic's notes: {critic}
+
+Write a new short plan in 2 to 4 steps. Do not write the final expression; a solver will do that from your plan.

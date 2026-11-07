@@ -20,6 +20,11 @@ num_predict = 512
 [approaches.reflective]
 max_attempts = 3
 
+# Multi-agent: each round is planner, solver, feedback check, and (if the check failed) critic,
+# whose notes go to the planner of the next round. Stops early when the check passes.
+[approaches.multi_agent]
+max_rounds = 2
+
 # Tree of Thoughts: each kept node proposes steps, the first `breadth` readable ones become
 # children, each child gets one LLM score, and the best `keep` of the level survive.
 [approaches.tot]
