@@ -9,8 +9,12 @@
 </head>
 <body>
   <header class="topbar">
+    <div class="topbar-group tabs" aria-label="View">
+      <button type="button" id="tab-demo" class="tab selected" title="Demo or results (T)">Demo</button>
+      <button type="button" id="tab-results" class="tab" title="Demo or results (T)">Results</button>
+    </div>
     <div class="topbar-group" id="scene-buttons" aria-label="Scenes"></div>
-    <div class="topbar-group">
+    <div class="topbar-group" id="demo-controls">
       <span class="mode-label" id="mode-label">REPLAY</span>
       <button type="button" id="btn-start" class="primary" title="Start (Space)">Start</button>
       <button type="button" id="btn-reset" title="Reset (R)">Reset</button>
@@ -51,6 +55,8 @@
 
   <footer class="summary" id="summary" hidden></footer>
 
+  <section class="results" id="results" hidden></section>
+
   <div class="overlay" id="help" hidden>
     <div class="help-box" role="dialog" aria-label="Keyboard shortcuts">
       <h2>Keyboard shortcuts</h2>
@@ -61,6 +67,8 @@
         <dt>L</dt><dd>Live or replay</dd>
         <dt>D</dt><dd>Draw card (live only)</dd>
         <dt>+ &nbsp;&minus;</dt><dd>Replay speed</dd>
+        <dt>T</dt><dd>Demo or results</dd>
+        <dt>&larr; &rarr;</dt><dd>Previous or next figure (results)</dd>
         <dt>F</dt><dd>Full screen</dd>
         <dt>?</dt><dd>Show or hide this help</dd>
       </dl>

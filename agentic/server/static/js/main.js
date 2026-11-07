@@ -3,6 +3,7 @@
 import { APPROACHES, Column } from "./columns.js";
 import { clear, el } from "./dom.js";
 import { installShortcuts } from "./shortcuts.js";
+import { ResultsView } from "./results.js";
 import { openStream } from "./stream.js";
 import { renderSummary } from "./summary.js";
 
@@ -22,6 +23,8 @@ const state = {
   questionShown: false,
   drawn: null,
   currentApproach: null,
+  tab: "demo",
+  labels: { model: null, mode: null },
 };
 
 const speed = () => SPEEDS[state.speedIndex];
@@ -49,6 +52,8 @@ function hideBanner() {
 // ---- Labels from the data ----
 
 function setDataLabels(model, mode) {
+  state.labels = { model, mode };
+  if (state.tab !== "demo") return;
   $("model-name").textContent = model ? `Model: ${model}` : "";
   $("label-mock").hidden = model !== "mock";
   $("label-demo").hidden = mode !== "demo";
@@ -234,6 +239,53 @@ function canDraw() {
   return state.scene && state.scene.task === "game24";
 }
 
+// ---- Demo and results tabs ----
+
+const resultsView = new ResultsView($("results"), {
+  onFake: (fake) => {
+    if (state.tab === "results") $("label-mock").hidden = !fake;
+  },
+  onError: (message) => showBanner(message),
+});
+
+function showTab(tab) {
+  state.tab = tab;
+  const demo = tab === "demo";
+  for (const id of ["question", "columns", "scene-buttons", "demo-controls"]) {
+    $(id).hidden = !demo;
+  }
+  $("summary").hidden = !(demo && state.finished && $("summary").childElementCount > 0);
+  $("results").hidden = demo;
+  $("tab-demo").classList.toggle("selected", demo);
+  $("tab-results").classList.toggle("selected", !demo);
+  if (demo) {
+    setDataLabels(state.labels.model, state.labels.mode);
+    requestAnimationFrame(() => columns.forEach((c) => c.afterLayout()));
+  } else {
+    $("model-name").textContent = "";
+    $("label-demo").hidden = true;
+    $("label-mock").hidden = true;
+    resultsView.load();
+  }
+}
+
+function toggleTab() {
+  showTab(state.tab === "demo" ? "results" : "demo");
+}
+
+// Demo shortcuts do nothing while the results are on screen.
+function demoOnly(action) {
+  return (...args) => {
+    if (state.tab === "demo") action(...args);
+  };
+}
+
+function resultsOnly(action) {
+  return (...args) => {
+    if (state.tab === "results") action(...args);
+  };
+}
+
 // ---- Controls ----
 
 function updateControls() {
@@ -293,19 +345,24 @@ bindButton("btn-slower", () => changeSpeed(-1));
 bindButton("btn-faster", () => changeSpeed(1));
 bindButton("btn-help", () => toggleHelp());
 bindButton("banner-close", hideBanner);
+bindButton("tab-demo", () => showTab("demo"));
+bindButton("tab-results", () => showTab("results"));
 window.addEventListener("resize", () => columns.forEach((c) => c.afterLayout()));
 $("help").addEventListener("click", (e) => {
   if (e.target === $("help")) toggleHelp(false);
 });
 
 installShortcuts({
-  scene: selectScene,
-  start,
-  reset,
-  toggleLive,
-  draw: drawCard,
-  faster: () => changeSpeed(1),
-  slower: () => changeSpeed(-1),
+  scene: demoOnly(selectScene),
+  start: demoOnly(start),
+  reset: demoOnly(reset),
+  toggleLive: demoOnly(toggleLive),
+  draw: demoOnly(drawCard),
+  faster: demoOnly(() => changeSpeed(1)),
+  slower: demoOnly(() => changeSpeed(-1)),
+  tab: toggleTab,
+  prev: resultsOnly(() => resultsView.move(-1)),
+  next: resultsOnly(() => resultsView.move(1)),
   fullscreen: toggleFullscreen,
   help: () => toggleHelp(),
   closeHelp: () => toggleHelp(false),
