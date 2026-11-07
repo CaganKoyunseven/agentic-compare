@@ -164,13 +164,6 @@ def test_experiment_dir_and_approach_choice():
         choose_approaches("baseline,magic")
 
 
-def test_humaneval_leaves_out_tot_until_it_is_built():
-    assert [a.name for a in choose_approaches("all", "humaneval")] == [
-        "baseline", "reflective", "multi_agent"]
-    with pytest.raises(SystemExit, match="Not implemented yet for humaneval"):
-        choose_approaches("baseline,tot", "humaneval")
-
-
 def test_humaneval_data_and_splits():
     """The committed dataset loads with its fixed splits: dev 15, test 60, no overlap."""
     task = HumanEvalTask()

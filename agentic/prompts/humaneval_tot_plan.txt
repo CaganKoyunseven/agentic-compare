@@ -1,0 +1,5 @@
+Here is a Python task:
+
+{prompt}
+
+Describe one way to solve it in 2 to 4 short sentences: the main idea and the edge cases to handle. Do not write code.
