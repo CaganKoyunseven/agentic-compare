@@ -1,3 +1,8 @@
+import gc
+import warnings
+
+import pytest
+
 from agentic.sandbox import run_python
 
 
@@ -94,3 +99,12 @@ def test_sandbox_cwd_has_no_repo_files():
     result = run_python(code)
     assert result.passed is True
     assert result.stdout.split() == ["False", "False"]
+
+
+@pytest.mark.parametrize("code", ["print('done')", "while True: pass"])
+def test_sandbox_closes_pipes(code):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
+        run_python(code, timeout_s=0.5)
+        gc.collect()
+    assert not [w for w in caught if issubclass(w.category, ResourceWarning)]

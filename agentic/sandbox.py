@@ -33,7 +33,7 @@ class SandboxResult:
 
 
 class _TailReader(threading.Thread):
-    """Reads a pipe until it closes and keeps only the last `limit_bytes` bytes."""
+    """Reads a pipe until it closes, keeps only the last `limit_bytes` bytes, then closes it."""
 
     def __init__(self, pipe, limit_bytes: int):
         super().__init__(daemon=True)
@@ -51,6 +51,13 @@ class _TailReader(threading.Thread):
                     self.dropped = True
         except (OSError, ValueError):   # pipe closed under us
             pass
+        finally:
+            # The reader closes its own pipe: closing it from another thread could block while
+            # read1 still waits for a grandchild that keeps the pipe open.
+            try:
+                self.pipe.close()
+            except OSError:
+                pass
 
 
 def _tail_text(reader: _TailReader, max_chars: int) -> str:
