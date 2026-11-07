@@ -156,9 +156,9 @@ def test_changed_settings_are_refused(tmp_path):
 def test_experiment_dir_and_approach_choice():
     path = experiment_dir("game24", "dev", "qwen2.5-coder:3b", "my laptop", "t1")
     assert path.name == "game24-dev-qwen2.5-coder-3b-my-laptop-t1"
-    assert [a.name for a in choose_approaches("all")] == ["baseline", "tot"]
+    assert [a.name for a in choose_approaches("all")] == ["baseline", "reflective", "tot"]
     assert [a.name for a in choose_approaches("tot,baseline")] == ["baseline", "tot"]
     with pytest.raises(SystemExit):
         choose_approaches("baseline,magic")
     with pytest.raises(SystemExit):
-        choose_approaches("reflective")
+        choose_approaches("multi_agent")

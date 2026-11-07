@@ -1,0 +1,7 @@
+You are checking an answer to the 24 game. The goal is to use each of the numbers exactly once with + - * / and parentheses to make 24.
+
+Numbers: {numbers}
+Answer: {answer}
+Checker result: {feedback}
+
+Explain in a few sentences what is wrong with this answer and what could be tried instead. Do not write a new answer.

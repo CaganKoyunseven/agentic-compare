@@ -16,10 +16,10 @@ format; it never checks the arithmetic and never feeds the verifier result back.
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-from agentic.approaches.base import Caller
+from agentic.approaches.base import Caller, load_prompt
+from agentic.approaches.base import user as _user
 from agentic.events import (
     Body,
     FinalAnswer,
@@ -32,7 +32,6 @@ from agentic.llm.base import LLMClient
 from agentic.tasks.base import Item, Task
 from agentic.tasks.game24 import normalize
 
-PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
 SCORE_OF_LABEL = {"sure": 1.0, "likely": 0.5, "impossible": 0.0}
 DEFAULTS = {"breadth": 3, "keep": 3}
 
@@ -40,10 +39,6 @@ DEFAULTS = {"breadth": 3, "keep": 3}
 _STEP = re.compile(r"^\s*(?:[-*]\s*|\d+[.)]\s+)?(.+?=\s*[^\s(]+)\s*\(\s*left:\s*([^)]*)\)",
                    re.IGNORECASE)
 _LABEL = re.compile(r"\b(sure|likely|impossible)\b", re.IGNORECASE)
-
-
-def load_prompt(name: str) -> str:
-    return (PROMPTS / f"{name}.txt").read_text(encoding="utf-8")
 
 
 def clean_line(line: str) -> str:
@@ -145,7 +140,3 @@ class TreeOfThoughts:
         answer = task.extract_answer(item, call.response)
         yield PathChosen(node_ids=[n.node_id for n in path], answer=answer)
         yield FinalAnswer(answer=answer)
-
-
-def _user(content: str) -> list[dict[str, str]]:
-    return [{"role": "user", "content": content}]
