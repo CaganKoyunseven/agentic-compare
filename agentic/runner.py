@@ -30,6 +30,7 @@ from typing import Any
 
 from agentic.approaches.base import Approach
 from agentic.approaches.baseline import Baseline
+from agentic.approaches.reflective import Reflective
 from agentic.approaches.tot import TreeOfThoughts
 from agentic.config import ROOT, load_toml, machine_id, model_name
 from agentic.events import FinalAnswer, LLMCall, RunEnd, RunStamp, RunStart
@@ -40,7 +41,8 @@ from agentic.tasks.game24 import Game24Task
 from agentic.traces import TraceWriter, group_runs, read_trace
 
 ORDER = ["baseline", "reflective", "multi_agent", "tot"]
-APPROACHES: dict[str, Approach] = {"baseline": Baseline(), "tot": TreeOfThoughts()}
+APPROACHES: dict[str, Approach] = {"baseline": Baseline(), "reflective": Reflective(),
+                                   "tot": TreeOfThoughts()}
 TASKS: dict[str, type] = {"game24": Game24Task}
 TRACES_DIR = ROOT / "traces" / "runs"
 CSV_COLUMNS = ["run_id", "task", "approach", "item_id", "difficulty", "rep", "split", "correct",

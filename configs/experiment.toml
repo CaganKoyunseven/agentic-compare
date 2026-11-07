@@ -15,6 +15,11 @@ num_predict = 512
 # Per-approach settings, filled in as the approaches are built.
 [approaches.baseline]
 
+# Reflective: at most `max_attempts` answers in total (first answer plus fixes). Each fix is
+# one critic call and one reviser call; stops early when the feedback check passes.
+[approaches.reflective]
+max_attempts = 3
+
 # Tree of Thoughts: each kept node proposes steps, the first `breadth` readable ones become
 # children, each child gets one LLM score, and the best `keep` of the level survive.
 [approaches.tot]

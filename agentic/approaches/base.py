@@ -6,11 +6,24 @@ adds RunStart and RunEnd around it.
 """
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, Protocol
 
 from agentic.events import Body, LLMCall
 from agentic.llm.base import LLMClient
 from agentic.tasks.base import Item, Task
+
+PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
+
+
+def load_prompt(name: str) -> str:
+    """Text of agentic/prompts/<name>.txt."""
+    return (PROMPTS / f"{name}.txt").read_text(encoding="utf-8")
+
+
+def user(content: str) -> list[dict[str, str]]:
+    """A chat with one user message: every call starts fresh, without earlier turns."""
+    return [{"role": "user", "content": content}]
 
 
 class Approach(Protocol):
