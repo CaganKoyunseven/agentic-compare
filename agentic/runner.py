@@ -3,6 +3,7 @@
 Usage:
     python -m agentic.runner --task game24 --split dev
     python -m agentic.runner --task game24 --split test --limit 30 --approach baseline,tot
+    python -m agentic.runner --task humaneval --split test --limit 30
 
 For each repetition and each item, the chosen approaches run back to back in a fixed order
 (interleaved), so slow drift of the machine (heat, background load) does not favour one
@@ -39,12 +40,14 @@ from agentic.llm.base import LLMClient
 from agentic.llm.ollama import OllamaClient, OllamaError
 from agentic.tasks.base import Item, Task
 from agentic.tasks.game24 import Game24Task
+from agentic.tasks.humaneval import HumanEvalTask
 from agentic.traces import TraceWriter, group_runs, read_trace
 
 ORDER = ["baseline", "reflective", "multi_agent", "tot"]
 APPROACHES: dict[str, Approach] = {"baseline": Baseline(), "reflective": Reflective(),
                                    "multi_agent": MultiAgent(), "tot": TreeOfThoughts()}
-TASKS: dict[str, type] = {"game24": Game24Task}
+TASKS: dict[str, type] = {"game24": Game24Task, "humaneval": HumanEvalTask}
+NOT_BUILT = {("tot", "humaneval")}     # (approach, task) pairs that do not exist yet
 TRACES_DIR = ROOT / "traces" / "runs"
 CSV_COLUMNS = ["run_id", "task", "approach", "item_id", "difficulty", "rep", "split", "correct",
                "tokens_in", "tokens_out", "llm_calls", "wall_ms", "model", "machine_id"]
@@ -220,15 +223,19 @@ def write_csv(trace_path: Path, csv_path: Path) -> int:
 
 # ---- Command line ----
 
-def choose_approaches(spec: str) -> list[Approach]:
+def choose_approaches(spec: str, task: str = "game24") -> list[Approach]:
+    """Approaches to run, in the fixed ORDER. 'all' quietly leaves out what is not built for
+    this task yet; naming such an approach explicitly is an error."""
     names = ORDER if spec == "all" else [n.strip() for n in spec.split(",") if n.strip()]
     unknown = [n for n in names if n not in ORDER]
     if unknown:
         raise SystemExit(f"Unknown approach {unknown}; choose from {ORDER} or 'all'")
-    missing = [n for n in names if n not in APPROACHES]
+    missing = [n for n in names if n not in APPROACHES or (n, task) in NOT_BUILT]
     if spec != "all" and missing:
-        raise SystemExit(f"Not implemented yet: {missing}")
-    return [APPROACHES[n] for n in ORDER if n in names and n in APPROACHES]
+        raise SystemExit(f"Not implemented yet for {task}: {missing}")
+    if missing:
+        print(f"Skipping, not built yet for {task}: {', '.join(missing)}")
+    return [APPROACHES[n] for n in ORDER if n in names and n not in missing]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -243,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     settings = load_toml("experiment")
-    approaches = choose_approaches(args.approach)
+    approaches = choose_approaches(args.approach, args.task)
     task = TASKS[args.task]()
     items = task.load_items(args.split)[:args.limit]
     model, machine = model_name(), machine_id()

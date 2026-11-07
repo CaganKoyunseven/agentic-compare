@@ -48,7 +48,11 @@ tests/       Unit tests
   Our approaches and prompts are our own. The Tree of Thoughts prompts for Game of 24
   (`agentic/prompts/game24_tot_*.txt`) follow the step format of the paper
   ("a op b = c (left: ...)", sure/likely/impossible) with our own wording and examples.
-- HumanEval: OpenAI (Chen et al., 2021). Details TBD.
+- HumanEval: `data/humaneval/HumanEval.jsonl.gz`, 164 Python problems from OpenAI
+  (Chen et al., 2021, "Evaluating Large Language Models Trained on Code"), repository
+  [openai/human-eval](https://github.com/openai/human-eval), MIT licence (copy in
+  `data/humaneval/LICENSE`). Re-download with `python -m scripts.fetch_humaneval`.
+  Final scores come only from the official tests, which no approach ever sees.
 
 ## License
 

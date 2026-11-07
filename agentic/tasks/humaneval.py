@@ -12,6 +12,7 @@ import random
 from pathlib import Path
 from typing import Any
 
+from agentic.config import ROOT
 from agentic.sandbox import run_python
 from agentic.tasks.base import Feedback, Item, Score
 
@@ -79,7 +80,7 @@ class HumanEvalTask:
         test_size: int = 60,
     ):
         if data_path is None:
-            data_path = Path("data/humaneval/HumanEval.jsonl.gz")
+            data_path = ROOT / "data" / "humaneval" / "HumanEval.jsonl.gz"
         self.data_path = Path(data_path)
         self.seed = seed
         self.dev_size = dev_size
