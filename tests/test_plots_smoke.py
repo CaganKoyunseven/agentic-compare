@@ -1,5 +1,6 @@
 import inspect
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -79,6 +80,57 @@ def test_paired_plot_needs_baseline(small_df, tmp_path):
     no_baseline = small_df[small_df["approach"] != "baseline"]
     with pytest.raises(ValueError, match="baseline"):
         plots.plot_paired(no_baseline, tmp_path / "p.png")
+
+
+def test_paired_plot_needs_another_approach(small_df, tmp_path):
+    only_baseline = small_df[small_df["approach"] == "baseline"]
+    with pytest.raises(ValueError, match="besides baseline"):
+        plots.plot_paired(only_baseline, tmp_path / "p.png")
+
+
+def test_plot_all_skips_paired_for_baseline_only(small_df, tmp_path, capsys):
+    only_baseline = small_df[small_df["approach"] == "baseline"]
+    paths = plots.plot_all(only_baseline, tmp_path)
+    assert [p.name for p in paths] == [name for name in FIGURES if name != "paired.png"]
+    for path in paths:
+        assert_png(path)
+    assert not (tmp_path / "paired.png").exists()
+    assert "Skipped paired.png" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("column", ["model", "split"])
+def test_plot_all_rejects_mixed_tables(small_df, tmp_path, column):
+    mixed = small_df.copy()
+    mixed.loc[mixed.index[0], column] = "other-value"
+    with pytest.raises(ValueError, match=column):
+        plots.plot_all(mixed, tmp_path)
+
+
+def test_zero_bars_get_a_value_label():
+    table = pd.DataFrame(
+        {
+            "task": ["game24", "game24"],
+            "approach": ["baseline", "tot"],
+            "mean": [0.25, 0.0],
+            "ci_low": [0.1, 0.0],
+            "ci_high": [0.4, 0.0],
+        }
+    )
+    fig, ax = plt.subplots()
+    plots._grouped_bars(
+        ax, table, "mean", ["game24"], ["baseline", "tot"], scale=100,
+        ci=("ci_low", "ci_high"), value_format="{:.0f}%",
+    )
+    labels = [text.get_text() for text in ax.texts]
+    plt.close(fig)
+    assert labels == ["25%", "0%"]
+
+
+def test_time_plot_title_names_the_machine(small_df, tmp_path, monkeypatch):
+    titles = []
+    monkeypatch.setattr(plots, "_save", lambda fig, path: titles.append(fig.get_suptitle()) or path)
+    plots.plot_time_and_calls(small_df, tmp_path / "t.png", machine_id="other")
+    assert "machine other" in titles[0]
 
 
 def test_no_language_option():

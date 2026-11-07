@@ -96,10 +96,11 @@ LABELS = {
     "paired_note": "n = {n}  |  accuracy diff {diff:+.0f} pp, 95% CI [{low:+.0f}, {high:+.0f}]",
     "cost_title": "Cost vs accuracy (n = {n} items per point)",
     "tokens_axis": "Mean tokens per run (log scale)",
-    "time_title": "Time and LLM calls on one machine (n = {n} runs)",
+    "time_title": "Time and LLM calls on machine {machine} (n = {n} runs)",
     "wall_time": "Mean wall time per run (s)",
     "llm_calls": "Mean LLM calls per run",
     "saved": "Saved {path}",
+    "skipped_paired": "Skipped paired.png: needs baseline and at least one other approach",
     "cli_description": "Draw all result charts from a results CSV.",
     "cli_input": "results CSV (runs table)",
     "cli_out": "output folder for the PNG files",
@@ -172,20 +173,29 @@ def _grouped_bars(
     approaches: list[str],
     scale: float = 1.0,
     ci: tuple[str, str] | None = None,
+    value_format: str = "{:.1f}",
+    label_offset: float = 1.0,
 ) -> None:
-    """One group of bars per task, one bar per approach, optional CI error bars."""
+    """One group of bars per task, one bar per approach, optional CI error bars.
+
+    Every bar gets its value printed above it (above the error bar when there is one),
+    so a bar of height 0 is still visible as a result and not mistaken for missing data.
+    """
     width = 0.8 / len(approaches)
     centers = np.arange(len(tasks))
     for i, approach in enumerate(approaches):
         sub = table[table["approach"] == approach].set_index("task").reindex(tasks)
         values = sub[value].to_numpy(dtype=float) * scale
+        tops = values.copy()
         yerr = None
         if ci is not None:
             low = sub[ci[0]].to_numpy(dtype=float) * scale
             high = sub[ci[1]].to_numpy(dtype=float) * scale
             yerr = np.nan_to_num(np.vstack([values - low, high - values]))
+            tops = np.fmax(values, high)
+        x = centers + (i - (len(approaches) - 1) / 2) * width
         ax.bar(
-            centers + (i - (len(approaches) - 1) / 2) * width,
+            x,
             np.nan_to_num(values),
             width,
             color=COLORS.get(approach, "#9CA3AF"),
@@ -193,6 +203,17 @@ def _grouped_bars(
             yerr=yerr,
             capsize=4,
         )
+        for x_pos, val, top in zip(x, values, tops, strict=True):
+            if np.isnan(val):
+                continue  # this approach has no runs for this task
+            ax.text(
+                x_pos,
+                top + label_offset,
+                value_format.format(val),
+                ha="center",
+                va="bottom",
+                fontsize=11,
+            )
     ax.set_xticks(centers)
     ax.grid(axis="y", linestyle="--", alpha=0.6)
     ax.set_axisbelow(True)
@@ -204,7 +225,16 @@ def plot_success(df: pd.DataFrame, out_path: Path) -> Path:
     rates = success_rate(df)
     tasks, approaches = _tasks_in(df), _approaches_in(df)
     fig, (ax,) = _subplots()
-    _grouped_bars(ax, rates, "mean", tasks, approaches, scale=100, ci=("ci_low", "ci_high"))
+    _grouped_bars(
+        ax,
+        rates,
+        "mean",
+        tasks,
+        approaches,
+        scale=100,
+        ci=("ci_low", "ci_high"),
+        value_format="{:.0f}%",
+    )
     n_by_task = rates.groupby("task")["n_items"]
     ax.set_xticklabels(
         [
@@ -212,10 +242,13 @@ def plot_success(df: pd.DataFrame, out_path: Path) -> Path:
             for t in tasks
         ]
     )
-    ax.set_ylim(0, 105)
+    # Headroom above 100% for the value labels; ticks stop at 100.
+    ax.set_ylim(0, 110)
+    ax.set_yticks(range(0, 101, 20))
     ax.set_ylabel(LABELS["accuracy_pct"])
     ax.set_title(LABELS["success_title"])
-    ax.legend(loc="upper left", ncols=len(approaches), frameon=True)
+    # Legend outside the axes, so it never covers tall bars.
+    fig.legend(loc="outside right upper", frameon=False)
     fig.supxlabel(LABELS["ci_note"], fontsize=11)
     return _save(fig, out_path)
 
@@ -304,6 +337,8 @@ def plot_paired(df: pd.DataFrame, out_path: Path) -> Path:
         raise ValueError("plot_paired needs runs of the baseline approach")
     tasks = _tasks_in(df)
     others = [a for a in _approaches_in(df) if a != BASELINE]
+    if not others:
+        raise ValueError("plot_paired needs at least one approach besides baseline")
     segments = ("only_a", "only_b", "both", "neither")
     results = {}
     for task in tasks:
@@ -443,7 +478,9 @@ def plot_time_and_calls(df: pd.DataFrame, out_path: Path, machine_id: str | None
         (ax_time, "mean_wall_s", LABELS["wall_time"]),
         (ax_calls, "mean_calls", LABELS["llm_calls"]),
     ):
-        _grouped_bars(ax, costs, column, tasks, approaches)
+        offset = 0.01 * float(np.nanmax(costs[column].to_numpy(dtype=float), initial=0.0))
+        _grouped_bars(ax, costs, column, tasks, approaches, label_offset=offset)
+        ax.margins(y=0.12)  # headroom for the value labels
         ax.set_xticklabels(
             [
                 LABELS["tick_task"].format(task=_task_name(t), n=_n_text(n_items.loc[t]))
@@ -453,21 +490,38 @@ def plot_time_and_calls(df: pd.DataFrame, out_path: Path, machine_id: str | None
         ax.set_ylabel(label)
     handles, labels = ax_time.get_legend_handles_labels()
     fig.legend(handles, labels, loc="outside lower center", ncols=len(approaches), frameon=False)
-    fig.suptitle(LABELS["time_title"].format(n=len(data)))
+    fig.suptitle(LABELS["time_title"].format(machine=machine_id, n=len(data)))
     return _save(fig, out_path)
 
 
+def _check_single_value(df: pd.DataFrame, column: str) -> None:
+    """Refuse tables that mix models or splits, so they are never pooled into one chart."""
+    values = sorted(set(df[column].astype(str)))
+    if len(values) > 1:
+        raise ValueError(f"The table mixes several {column} values: {', '.join(values)}")
+
+
 def plot_all(df: pd.DataFrame, out_dir: str | Path, machine_id: str | None = None) -> list[Path]:
-    """Write all six figures into ``out_dir`` and return their paths."""
+    """Write all figures into ``out_dir`` and return their paths.
+
+    The paired chart is skipped (with a printed note) when there is no approach besides
+    baseline, so a partial run never produces an empty figure.
+    """
+    for column in ("model", "split"):
+        _check_single_value(df, column)
     out_dir = Path(out_dir)
-    return [
+    paths = [
         plot_success(df, out_dir / "success.png"),
         plot_cumulative(df, out_dir / "cumulative.png"),
         plot_rep_spread(df, out_dir / "rep_spread.png"),
-        plot_paired(df, out_dir / "paired.png"),
-        plot_cost_vs_accuracy(df, out_dir / "cost_vs_accuracy.png"),
-        plot_time_and_calls(df, out_dir / "time_and_calls.png", machine_id=machine_id),
     ]
+    if set(df["approach"]) - {BASELINE} and BASELINE in set(df["approach"]):
+        paths.append(plot_paired(df, out_dir / "paired.png"))
+    else:
+        print(LABELS["skipped_paired"])
+    paths.append(plot_cost_vs_accuracy(df, out_dir / "cost_vs_accuracy.png"))
+    paths.append(plot_time_and_calls(df, out_dir / "time_and_calls.png", machine_id=machine_id))
+    return paths
 
 
 def main(argv: Sequence[str] | None = None) -> None:
