@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from agentic.config import ROOT
+from agentic.demo_config import DRAW_SCENE, load_demo_config, replay_scene_for
 from agentic.events import to_dict
 from agentic.tasks.base import Item
 from agentic.tasks.game24 import Game24Task
@@ -93,18 +94,26 @@ def live_events(scene: str, item_id: str | None = None) -> Iterator[dict[str, An
 
 # ---- Draw card ----
 
-def draw_pool() -> list[Item]:
-    """Puzzles the draw card picks from. Replace this one line to use a curated list."""
-    return Game24Task().load_items("dev")
+def draw_pool() -> dict[str, list[Item]]:
+    """Puzzles the draw card picks from, per difficulty, from [pool] in configs/demo.toml.
+
+    The difficulty is the pool key, not the item's computed tier, so the presenter decides.
+    """
+    pool = load_demo_config().pool
+    dev = {item.item_id: item for item in Game24Task().load_items("dev")}
+    missing = [item_id for ids in pool.values() for item_id in ids if item_id not in dev]
+    if missing:
+        raise ValueError(f"draw pool items not in the Game of 24 dev split: {missing}")
+    return {difficulty: [dev[item_id] for item_id in ids] for difficulty, ids in pool.items()}
 
 
 def draw_card(difficulty: str, rng: random.Random | None = None) -> dict[str, Any]:
     """A random puzzle of the given difficulty ("easy", "medium" or "hard") from draw_pool()."""
     if difficulty not in DIFFICULTIES:
         raise ValueError(f"unknown difficulty {difficulty!r}; use one of {', '.join(DIFFICULTIES)}")
-    pool = [item for item in draw_pool() if item.difficulty == difficulty]
+    pool = draw_pool().get(difficulty, [])
     if not pool:
         raise ValueError(f"no puzzles with difficulty {difficulty!r}")
     item = (rng or random.Random()).choice(pool)
     return {"item_id": item.item_id, "numbers": list(item.payload["numbers"]),
-            "difficulty": item.difficulty}
+            "difficulty": difficulty, "replay_scene": replay_scene_for(DRAW_SCENE, item.item_id)}

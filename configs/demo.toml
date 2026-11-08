@@ -1,1 +1,22 @@
-# Demo settings. May be lighter than the benchmark config.
+# Demo settings. May be lighter than the benchmark config; demo timings never enter results.
+# LLM settings always come from experiment.toml [llm]. Only the keys below are demo-specific.
+
+seed = 2026
+keep_alive = "60m"        # keep the model loaded through the whole talk
+
+# Approach overrides on top of experiment.toml (empty = benchmark values).
+# Tuned on the laptop so each scene stays under 60-90 s.
+[approaches.tot]
+
+# Fixed scenes (dev split). Placeholders until the pool is curated on the laptop.
+[scenes]
+easy24 = "game24/0043"
+hard24 = "game24/1215"
+humaneval = "HumanEval/55"
+
+# Draw-card pool (Game of 24, dev split). Every puzzle here needs a recorded replay
+# (scripts/record_demo.py). Placeholders until curated.
+[pool]
+easy = ["game24/0043", "game24/0068", "game24/0648"]
+medium = ["game24/0286", "game24/0419", "game24/0847"]
+hard = ["game24/1215", "game24/0950", "game24/1298"]

@@ -5,6 +5,7 @@ import random
 import pytest
 from fastapi.testclient import TestClient
 
+from agentic.demo_config import load_demo_config
 from agentic.events import from_dict
 from agentic.server import app as app_module
 from agentic.server import sessions
@@ -116,10 +117,18 @@ def test_draw_card_seeded():
     assert len(card["numbers"]) == 4
 
 
+def test_draw_card_only_from_pool_and_names_replay():
+    pool = load_demo_config().pool
+    for seed in range(20):
+        card = sessions.draw_card("hard", random.Random(seed))
+        assert card["item_id"] in pool["hard"]
+        assert card["replay_scene"] == "pool-" + card["item_id"].replace("/", "-")
+
+
 def test_draw_card_errors(monkeypatch):
     with pytest.raises(ValueError):
         sessions.draw_card("impossible")
-    monkeypatch.setattr(sessions, "draw_pool", list)
+    monkeypatch.setattr(sessions, "draw_pool", dict)
     with pytest.raises(ValueError):
         sessions.draw_card("easy")
 
