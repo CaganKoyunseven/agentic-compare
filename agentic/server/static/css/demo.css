@@ -19,6 +19,7 @@
   --planner: #a78bfa;
   --solver: #38bdf8;
   --critic: #f472b6;
+  --tester: #fb923c;
   --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, "DejaVu Sans Mono", monospace;
   --sans: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 18px;
@@ -280,6 +281,7 @@ button.scene.selected { background: var(--text); color: var(--bg); border-color:
 .bubble.role-planner { --role: var(--planner); }
 .bubble.role-solver { --role: var(--solver); align-self: flex-end; border-left: none; border-right: 5px solid var(--role); }
 .bubble.role-critic { --role: var(--critic); }
+.bubble.role-tester { --role: var(--tester); }
 .bubble-role { font-size: 0.75rem; font-weight: 800; color: var(--role); text-transform: uppercase; letter-spacing: 0.05em; }
 .bubble-text { font-size: 0.95rem; }
 pre.bubble-text { font-size: 0.85rem; }

@@ -3,7 +3,7 @@
 import { testBadge } from "./badges.js";
 import { el } from "./dom.js";
 
-const ROLE_LABELS = { planner: "Planner", solver: "Solver", critic: "Critic" };
+const ROLE_LABELS = { planner: "Planner", solver: "Solver", critic: "Critic", tester: "Tester" };
 
 export class ChatView {
   constructor() {
