@@ -11,6 +11,7 @@ from agentic.server import app as app_module
 from agentic.server import sessions
 from agentic.server.app import create_app, sse_stream
 from scripts.make_mock_traces import write_all
+from tests.test_live import FakeStreamClient, make_runner, wait_idle
 
 
 @pytest.fixture
@@ -105,11 +106,6 @@ def test_replay_waits_capped_gaps_and_run_gap(monkeypatch):
     assert waits == []
 
 
-def test_live_events_is_a_stub():
-    with pytest.raises(NotImplementedError):
-        sessions.live_events("easy24")
-
-
 def test_draw_card_seeded():
     card = sessions.draw_card("easy", random.Random(1))
     assert card == sessions.draw_card("easy", random.Random(1))
@@ -202,17 +198,96 @@ def test_replay_negative_speed_rejected(client):
     assert client.get("/api/replay/easy24?speed=-1").status_code == 422
 
 
-def test_live_not_connected(client):
+def test_status_without_live(client):
+    assert client.get("/api/status").json() == {"live": False, "model": None,
+                                               "reason": "Live mode was not started"}
+
+
+def test_live_without_runner_is_503(client):
     response = client.get("/api/live/easy24")
-    assert response.status_code == 501
-    assert response.json() == {"detail": "Live mode is not connected yet"}
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Live mode was not started"}
 
 
-def test_live_uses_the_same_sse_stream(client, monkeypatch):
-    events = [{"type": "token", "call_id": "c1", "text": "4"}]
-    monkeypatch.setattr(app_module, "live_events", lambda scene, item_id=None: iter(events))
-    messages = parse_sse(client.get("/api/live/easy24").text)
-    assert messages == [(None, events[0]), ("end", {})]
+@pytest.fixture
+def live_runner(tmp_path):
+    return make_runner(tmp_path / "live")
+
+
+@pytest.fixture
+def live_client(scene_dir, live_runner):
+    return TestClient(create_app(scene_dir, live=live_runner))
+
+
+def test_status_with_live(live_client):
+    assert live_client.get("/api/status").json() == {"live": True, "model": "fake:3b",
+                                                    "reason": ""}
+
+
+def test_live_streams_events_then_end(live_client):
+    messages = parse_sse(live_client.get("/api/live/easy24").text)
+    assert messages[-1] == ("end", {})
+    assert any(data.get("type") == "token" for _, data in messages[:-1])
+    starts = [data for _, data in messages if data.get("type") == "run_start"]
+    assert len(starts) == 4 and all(d["mode"] == "demo" for d in starts)
+
+
+def test_live_unknown_scene_404(live_client):
+    assert live_client.get("/api/live/nope").status_code == 404
+
+
+def test_live_draw_off_pool_404(live_client):
+    assert live_client.get("/api/live/draw?item_id=game24/0001").status_code == 404
+
+
+def test_live_draw_from_pool_streams(live_client):
+    messages = parse_sse(live_client.get("/api/live/draw?item_id=game24/0068").text)
+    assert messages[-1] == ("end", {})
+    assert {d["item_id"] for _, d in messages if d.get("type") == "run_start"} == {"game24/0068"}
+
+
+def test_live_busy_409(scene_dir, tmp_path):
+    runner = make_runner(tmp_path / "live", FakeStreamClient(delay_s=0.05))
+    busy_client = TestClient(create_app(scene_dir, live=runner))
+
+    async def scenario():
+        stream = runner.start("hard24", None)
+        await anext(stream)
+        response = busy_client.get("/api/live/easy24")
+        await stream.aclose()
+        return response.status_code
+
+    assert asyncio.run(scenario()) == 409
+    assert wait_idle(runner)
+
+
+def test_live_failure_error_event_has_replay_scene(scene_dir, tmp_path):
+    runner = make_runner(tmp_path / "live", FakeStreamClient(fail_on_call=0))
+    messages = parse_sse(TestClient(create_app(scene_dir, live=runner))
+                         .get("/api/live/easy24").text)
+    event, data = messages[-1]
+    assert event == "error"
+    assert data["scene"] == "easy24" and data["replay_scene"] == "easy24"
+    assert "Cannot reach Ollama" in data["message"]
+
+
+def test_sse_stream_closes_its_source():
+    closed = []
+
+    async def source():
+        try:
+            yield {"type": "a"}
+            yield {"type": "b"}
+        finally:
+            closed.append(True)
+
+    async def first_then_close():
+        stream = sse_stream(source())
+        await anext(stream)
+        await stream.aclose()
+        return list(closed)               # checked at once, not at event loop shutdown
+
+    assert asyncio.run(first_then_close()) == [True]
 
 
 def test_draw_endpoint(client):

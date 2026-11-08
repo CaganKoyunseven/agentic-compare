@@ -1,13 +1,13 @@
 """Live and replay sessions that produce event streams.
 
 Every stream yields flat event dicts, exactly as one trace line. Replay reads a recorded trace
-and waits between events; live mode (connected by the owner) yields the same dicts from the
+and waits between events; live mode (agentic/server/live.py) yields the same dicts from the
 model. The server turns both into the same SSE text, so the page cannot tell them apart.
 """
 
 import asyncio
 import random
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -79,17 +79,6 @@ async def replay_events(
                 await asyncio.sleep(wait_ms / 1000 / speed)
         yield event
         previous = event
-
-
-# ---- Live (hook for the owner) ----
-
-def live_events(scene: str, item_id: str | None = None) -> Iterator[dict[str, Any]]:
-    """Live hook, connected by the owner.
-
-    The owner replaces this with a generator that yields the same flat dicts as a trace line,
-    plus {"type": "token", "call_id": ..., "text": ...} events while a model call is streaming.
-    """
-    raise NotImplementedError("Live mode is connected by the owner")
 
 
 # ---- Draw card ----

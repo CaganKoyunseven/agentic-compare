@@ -1,10 +1,12 @@
 """FastAPI app serving the demo page and event streams.
 
-Run: python -m agentic.server.app [--port 8000] [--traces <dir>]
+Run: python -m agentic.server.app [--port 8000] [--traces <dir>]  (replay only)
+     python -m agentic.demo                                       (live + replay)
 The server listens on 127.0.0.1 only.
 """
 
 import argparse
+import contextlib
 import json
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from pathlib import Path
@@ -15,11 +17,11 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response, Streami
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import iterate_in_threadpool
 
+from agentic.server.live import LiveBusy, LiveRunner
 from agentic.server.sessions import (
     default_traces_dir,
     draw_card,
     find_scenes,
-    live_events,
     load_scene,
     replay_events,
 )
@@ -44,15 +46,19 @@ async def sse_stream(
     """Turn any iterator of event dicts into SSE text. Replay and live both use this.
 
     A plain (blocking) iterator is read in a worker thread, so a slow model call does not block
-    the server. Ends with an "end" event, or with an "error" event if the source fails.
+    the server. Ends with an "end" event, or with an "error" event if the source fails; the
+    error also carries the exception's details (live mode: scene, item_id, replay_scene).
+    When the client goes away the source is closed at once, which stops a live scene.
     """
     source = events if isinstance(events, AsyncIterable) else iterate_in_threadpool(iter(events))
-    try:
-        async for event in source:
-            yield _sse_message(event)
-    except Exception as exc:  # noqa: BLE001  (shown to the presenter, not a silent stop)
-        yield _sse_message({"message": f"{type(exc).__name__}: {exc}"}, event="error")
-        return
+    async with contextlib.aclosing(source):
+        try:
+            async for event in source:
+                yield _sse_message(event)
+        except Exception as exc:  # noqa: BLE001  (shown to the presenter, not a silent stop)
+            payload = {"message": f"{type(exc).__name__}: {exc}", **getattr(exc, "details", {})}
+            yield _sse_message(payload, event="error")
+            return
     yield _sse_message({}, event="end")
 
 
@@ -80,8 +86,12 @@ async def _replay_source(path: Path, speed: float) -> AsyncIterator[dict[str, An
 
 # ---- App ----
 
-def create_app(traces_dir: Path | None = None) -> FastAPI:
-    """The demo app, reading scenes from traces_dir (default: default_traces_dir())."""
+def create_app(traces_dir: Path | None = None, live: LiveRunner | None = None,
+               live_reason: str = "Live mode was not started") -> FastAPI:
+    """The demo app, reading scenes from traces_dir (default: default_traces_dir()).
+
+    live runs live scenes; without it the app is replay-only and live_reason says why.
+    """
     traces_dir = Path(traces_dir) if traces_dir is not None else default_traces_dir()
     app = FastAPI(title="Agentic compare demo", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
@@ -113,12 +123,22 @@ def create_app(traces_dir: Path | None = None) -> FastAPI:
     def replay(scene: str, speed: float = Query(1.0, ge=0, le=100)) -> Response:
         return _sse_response(_replay_source(scene_path(scene), speed))
 
+    @app.get("/api/status")
+    def status() -> dict[str, Any]:
+        if live is None:
+            return {"live": False, "model": None, "reason": live_reason}
+        return {"live": True, "model": live.model, "reason": ""}
+
     @app.get("/api/live/{scene}")
-    def live(scene: str, item_id: str | None = None) -> Response:
+    def live_scene(scene: str, item_id: str | None = None) -> Response:
+        if live is None:
+            raise HTTPException(status_code=503, detail=live_reason)
         try:
-            events = live_events(scene, item_id)
-        except NotImplementedError as exc:
-            raise HTTPException(status_code=501, detail="Live mode is not connected yet") from exc
+            events = live.start(scene, item_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except LiveBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return _sse_response(events)
 
     @app.get("/api/draw")
