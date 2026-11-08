@@ -22,9 +22,24 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Replay demo (no Ollama needed): TBD
+Replay demo (no Ollama needed):
 
-Live demo: TBD
+```sh
+python scripts/make_mock_traces.py   # only needed while traces/examples/ is empty
+python -m agentic.demo --replay-only
+```
+
+Live demo (Ollama running, `MODEL_NAME` and `MACHINE_ID` set in `.env`, see `.env.example`):
+
+```sh
+python -m agentic.demo
+```
+
+The launcher checks Ollama, warms the model, starts the server on `http://127.0.0.1:8000` and
+opens the browser. If Ollama or the model is not available it starts in replay-only mode.
+Options: `--port`, `--no-browser`. Live runs are also saved to `traces/live/`. Demo settings
+(lighter than the benchmark, fixed scenes, draw-card pool) are in `configs/demo.toml`; demo
+timings are never used in the results.
 
 ## Repository layout
 
