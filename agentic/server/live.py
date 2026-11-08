@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import anyio
+from starlette.concurrency import run_in_threadpool
 
 from agentic.config import ROOT
 from agentic.demo_config import DRAW_SCENE, SCENE_TASKS, DemoConfig, replay_scene_for
@@ -205,7 +205,7 @@ class LiveRunner:
         try:
             while True:
                 try:
-                    message = await anyio.to_thread.run_sync(events.get, True, 0.1)
+                    message = await run_in_threadpool(events.get, True, 0.1)
                 except queue.Empty:
                     continue
                 if message is _DONE:

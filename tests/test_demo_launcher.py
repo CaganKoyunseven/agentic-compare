@@ -68,3 +68,19 @@ def test_prepare_live_env_missing(monkeypatch):
                                   log=lambda line: None)
     assert runner is None
     assert "MODEL_NAME" in reason
+
+
+def test_prepare_live_non_json_answer_falls_back():
+    def not_ollama(request):
+        return httpx.Response(200, text="<html>some other server</html>")
+
+    logs = []
+    runner, reason = prepare_live(load_demo_config(), transport=httpx.MockTransport(not_ollama),
+                                  log=logs.append)
+    assert runner is None
+    assert reason and "replay-only" in logs[-1]
+
+
+def test_live_client_has_short_read_timeout():
+    runner, _ = prepare_live(load_demo_config(), transport=fake_ollama(), log=lambda line: None)
+    assert runner.client._http.timeout.read == 30

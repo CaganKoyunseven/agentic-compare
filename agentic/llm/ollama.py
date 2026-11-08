@@ -71,6 +71,8 @@ class OllamaClient:
                     if not line.strip():
                         continue
                     data = json.loads(line)
+                    if "error" in data:       # e.g. the model crashed (out of GPU memory)
+                        raise OllamaError(f"Ollama error: {data['error']}")
                     text = (data.get("message") or {}).get("content", "")
                     if text:
                         pieces.append(text)

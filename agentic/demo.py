@@ -22,6 +22,10 @@ from agentic.server.app import HOST, create_app
 from agentic.server.live import LiveRunner
 from agentic.server.sessions import default_traces_dir
 
+# Read timeout of live calls. Streaming sends a piece every few hundred ms, so 30 s without
+# one means Ollama hangs; the presenter should see an error, not two silent minutes.
+LIVE_TIMEOUT_S = 30.0
+
 
 def prepare_live(demo: DemoConfig, *, transport: httpx.BaseTransport | None = None,
                  log: Callable[[str], None] = print) -> tuple[LiveRunner | None, str]:
@@ -29,13 +33,18 @@ def prepare_live(demo: DemoConfig, *, transport: httpx.BaseTransport | None = No
     try:
         model, machine = model_name(), machine_id()
         client = OllamaClient(model, **demo.llm_settings, keep_alive=demo.keep_alive,
-                              transport=transport)
+                              timeout_s=LIVE_TIMEOUT_S, transport=transport)
         version, digest = client.server_info()
         if digest is None:
             raise RuntimeError(f"Model {model} is not installed in Ollama (ollama pull {model})")
-        warm = client.chat([{"role": "user", "content": "Reply with OK."}])
+        # Loading the model can take longer than LIVE_TIMEOUT_S, so warm with the default.
+        warmer = OllamaClient(model, **demo.llm_settings, keep_alive=demo.keep_alive,
+                              transport=transport)
+        warm = warmer.chat([{"role": "user", "content": "Reply with OK."}])
+        warmer.close()
         log(f"Model {model} warm ({warm.wall_ms / 1000:.1f} s), Ollama {version}")
-    except (RuntimeError, OllamaError, httpx.HTTPError) as exc:
+    except (RuntimeError, ValueError, OllamaError, httpx.HTTPError) as exc:
+        # ValueError: an answer that is not JSON (another program on the Ollama port).
         reason = str(exc) or type(exc).__name__
         log(f"Live unavailable: {reason}. Starting in replay-only mode.")
         return None, reason
