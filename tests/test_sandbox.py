@@ -82,6 +82,16 @@ def test_sandbox_non_ascii():
     assert "naïve café, 日本語, ✓" in result.stdout
 
 
+def test_sandbox_child_runs_in_utf8_mode():
+    result = run_python("import sys\nprint(sys.flags.utf8_mode)")
+    assert result.stdout == "1\n"
+
+
+def test_sandbox_normalizes_windows_line_endings():
+    result = run_python("import sys\nsys.stdout.buffer.write(b'a\\r\\nb\\r\\n')")
+    assert result.stdout == "a\nb\n"
+
+
 def test_sandbox_clean_environment(monkeypatch):
     monkeypatch.setenv("FAKE_API_KEY", "secret123")
     code = "import os\nprint(os.environ.get('FAKE_API_KEY', 'not found'))"
