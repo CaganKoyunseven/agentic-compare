@@ -25,7 +25,7 @@ pip install -r requirements.txt
 Replay demo (no Ollama needed):
 
 ```sh
-python scripts/make_mock_traces.py   # only needed while traces/examples/ is empty
+python -m scripts.make_mock_traces   # only needed while traces/examples/ is empty
 python -m agentic.demo --replay-only
 ```
 
