@@ -217,3 +217,70 @@ def test_draw_endpoint(client):
 
 def test_draw_bad_difficulty(client):
     assert client.get("/api/draw?difficulty=impossible").status_code == 400
+
+
+# ---- results ----
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+
+@pytest.fixture
+def results_dir(tmp_path):
+    folder = tmp_path / "results"
+    folder.mkdir()
+    (folder / "success.png").write_bytes(PNG)
+    (folder / "paired.png").write_bytes(PNG)
+    (folder / "extra.png").write_bytes(PNG)
+    (folder / "report.md").write_text("**FAKE DATA, NOT A RESULT**\n# Results report\n",
+                                      encoding="utf-8")
+    (folder / "runs.csv").write_text("run_id\n", encoding="utf-8")
+    (folder / "notes.txt").write_text("not served", encoding="utf-8")
+    (tmp_path / "secret.png").write_bytes(PNG)
+    return folder
+
+
+@pytest.fixture
+def results_client(scene_dir, results_dir):
+    return TestClient(create_app(scene_dir, results_dir))
+
+
+def test_results_list(results_client):
+    response = results_client.get("/api/results")
+    assert response.status_code == 200
+    # Report order first, then any other PNG by name; no other file types.
+    assert response.json() == {"figures": ["success.png", "paired.png", "extra.png"],
+                               "report": True}
+
+
+def test_results_empty_or_missing_folder(scene_dir, tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    for folder in (empty, tmp_path / "missing"):
+        client = TestClient(create_app(scene_dir, folder))
+        assert client.get("/api/results").json() == {"figures": [], "report": False}
+
+
+def test_results_serves_png_and_report(results_client):
+    png = results_client.get("/results/success.png")
+    assert png.status_code == 200
+    assert png.headers["content-type"] == "image/png"
+    assert png.content == PNG
+    report = results_client.get("/results/report.md")
+    assert report.status_code == 200
+    assert report.headers["content-type"].startswith("text/markdown")
+    assert "FAKE DATA" in report.text
+
+
+@pytest.mark.parametrize("name", ["runs.csv", "notes.txt", "missing.png", ".hidden.png"])
+def test_results_refuses_other_files(results_client, name):
+    assert results_client.get(f"/results/{name}").status_code == 404
+
+
+@pytest.mark.parametrize("path", [
+    "/results/..%2Fsecret.png",
+    "/results/%2E%2E%2Fsecret.png",
+    "/results/..%5Csecret.png",
+    "/results/../secret.png",
+])
+def test_results_path_traversal_404(results_client, path):
+    assert results_client.get(path).status_code == 404

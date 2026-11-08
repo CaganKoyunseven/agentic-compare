@@ -1,11 +1,12 @@
 """FastAPI app serving the demo page and event streams.
 
-Run: python -m agentic.server.app [--port 8000] [--traces <dir>]
+Run: python -m agentic.server.app [--port 8000] [--traces <dir>] [--results <dir>]
 The server listens on 127.0.0.1 only.
 """
 
 import argparse
 import json
+import re
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response, Streami
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import iterate_in_threadpool
 
+from agentic.config import ROOT
 from agentic.server.sessions import (
     default_traces_dir,
     draw_card,
@@ -29,6 +31,13 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 INDEX_FILE = STATIC_DIR / "index.html"
 HOST = "127.0.0.1"
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+DEFAULT_RESULTS_DIR = ROOT / "results"
+REPORT_FILE = "report.md"
+# Figures in the order of the report; any other PNG follows by name.
+FIGURE_ORDER = ("success.png", "cumulative.png", "rep_spread.png", "paired.png",
+                "cost_vs_accuracy.png", "time_and_calls.png")
+RESULT_TYPES = {".png": "image/png", ".md": "text/markdown; charset=utf-8"}
+SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 # ---- SSE ----
@@ -78,11 +87,34 @@ async def _replay_source(path: Path, speed: float) -> AsyncIterator[dict[str, An
         yield event
 
 
+# ---- Results ----
+
+def list_figures(results_dir: Path) -> list[str]:
+    """PNG file names directly inside results_dir, report order first."""
+    if not results_dir.is_dir():
+        return []
+    names = {p.name for p in results_dir.glob("*.png") if p.is_file() and SAFE_NAME.match(p.name)}
+    known = [n for n in FIGURE_ORDER if n in names]
+    return known + sorted(names - set(known))
+
+
+def result_file(results_dir: Path, name: str) -> Path | None:
+    """The file `name` directly inside results_dir if it is a .png or .md, else None."""
+    if not SAFE_NAME.match(name) or Path(name).suffix.lower() not in RESULT_TYPES:
+        return None
+    path = results_dir / name
+    if not path.is_file() or path.resolve().parent != results_dir.resolve():
+        return None
+    return path
+
+
 # ---- App ----
 
-def create_app(traces_dir: Path | None = None) -> FastAPI:
-    """The demo app, reading scenes from traces_dir (default: default_traces_dir())."""
+def create_app(traces_dir: Path | None = None, results_dir: Path | None = None) -> FastAPI:
+    """The demo app, reading scenes from traces_dir (default: default_traces_dir()) and
+    report files from results_dir (default: results/)."""
     traces_dir = Path(traces_dir) if traces_dir is not None else default_traces_dir()
+    results_dir = Path(results_dir) if results_dir is not None else DEFAULT_RESULTS_DIR
     app = FastAPI(title="Agentic compare demo", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
@@ -128,6 +160,19 @@ def create_app(traces_dir: Path | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/results")
+    def results() -> dict[str, Any]:
+        return {"figures": list_figures(results_dir),
+                "report": result_file(results_dir, REPORT_FILE) is not None}
+
+    @app.get("/results/{name}", include_in_schema=False)
+    def result(name: str) -> Response:
+        path = result_file(results_dir, name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(path, media_type=RESULT_TYPES[path.suffix.lower()],
+                            headers={"Cache-Control": "no-cache"})
+
     return app
 
 
@@ -140,14 +185,17 @@ def main() -> None:
     parser.add_argument("--traces", type=Path, default=None,
                         help="folder with scene *.jsonl files (default: traces/examples/ "
                              "if it has any, otherwise traces/mock/)")
+    parser.add_argument("--results", type=Path, default=DEFAULT_RESULTS_DIR,
+                        help="folder with report.md and the figures (default: results/)")
     args = parser.parse_args()
 
     import uvicorn
 
     traces_dir = args.traces if args.traces is not None else default_traces_dir()
     print(f"Scenes from {traces_dir}")
+    print(f"Results from {args.results}")
     print(f"Open http://{HOST}:{args.port}")
-    uvicorn.run(create_app(traces_dir), host=HOST, port=args.port)
+    uvicorn.run(create_app(traces_dir, args.results), host=HOST, port=args.port)
 
 
 if __name__ == "__main__":
