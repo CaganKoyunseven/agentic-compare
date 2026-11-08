@@ -3,6 +3,7 @@
 import operator
 import re
 from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
@@ -15,11 +16,13 @@ from agentic.events import (
     NodeScored,
     PathChosen,
     RunEnd,
+    TestResult,
 )
 from agentic.llm.base import LLMResult
 from agentic.runner import Setup, run_experiment
 from agentic.tasks.base import Item
 from agentic.tasks.game24 import Game24Task, check_expression
+from agentic.tasks.humaneval import HumanEvalTask
 from agentic.traces import group_runs, read_trace
 
 OPS = {"+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv}
@@ -163,14 +166,131 @@ def test_no_readable_proposal_still_writes_an_answer():
     assert isinstance(events[-1], FinalAnswer)
 
 
-def test_humaneval_not_built_yet():
-    item = Item("humaneval/0", "humaneval", {"prompt": "def f(): ..."}, None)
+def test_unknown_task_not_built():
+    item = Item("gsm8k/0", "gsm8k", {"question": "1 + 1?"}, None)
 
     class FakeTask:
-        name = "humaneval"
+        name = "gsm8k"
 
     with pytest.raises(NotImplementedError):
         list(TreeOfThoughts().run(item, FakeTask(), ScriptedLLM(), seed=0, config={}))
+
+
+# ---- HumanEval: plans, then code ----
+
+FENCE = "`" * 3
+WRONG_CODE = f"{FENCE}python\ndef add(a, b):\n    return a - b\n{FENCE}"
+RIGHT_CODE = f"{FENCE}python\ndef add(a, b):\n    return a + b\n{FENCE}"
+
+
+class HumanEvalLLM:
+    """Answers by role: tester, proposer (plans in order), scorer (by plan), coder (by plan)."""
+    model = "fake"
+
+    def __init__(self, plans, labels, codes):
+        self.plans, self.labels, self.codes = list(plans), labels, codes
+        self.calls: list[tuple[str, str, int | None]] = []
+
+    def chat(self, messages, *, seed=None):
+        prompt = messages[-1]["content"]
+        if prompt.startswith("Read the Python function"):
+            role, text = "tester", "assert add(2, 3) == 5\nassert add(10, -1) == 9"
+        elif prompt.startswith("Here is a Python task"):
+            role, text = "proposer", self.plans.pop(0)
+        elif prompt.startswith("Judge whether the plan"):
+            role = "scorer"
+            text = next(v for k, v in self.labels.items() if f"Plan:\n{k}" in prompt)
+        else:
+            role = "coder"
+            text = next(v for k, v in self.codes.items() if k in prompt)
+        self.calls.append((role, prompt, seed))
+        return LLMResult(text=text, tokens_in=10, tokens_out=5, wall_ms=1, load_ms=0,
+                         model="fake", done_reason="stop")
+
+
+@pytest.fixture
+def he_task():
+    return HumanEvalTask(data_path=Path("tests/fixtures/humaneval_mini.jsonl"),
+                         dev_size=1, test_size=2)
+
+
+def he_item(task):
+    return next(i for i in task.load_items("all") if i.item_id == "HumanEval/0")
+
+
+def run_he(task, llm):
+    return list(TreeOfThoughts().run(he_item(task), task, llm, seed=90,
+                                     config={"humaneval_breadth": 3, "humaneval_keep": 2}))
+
+
+def test_humaneval_best_plan_fails_second_passes(he_task):
+    llm = HumanEvalLLM(
+        plans=["Subtract b from a.", "Add the two numbers.", "Return zero."],
+        labels={"Subtract b from a.": "sure", "Add the two numbers.": "likely",
+                "Return zero.": "impossible"},
+        codes={"Subtract b from a.": WRONG_CODE, "Add the two numbers.": RIGHT_CODE})
+    events = run_he(he_task, llm)
+
+    assert [role for role, _, _ in llm.calls] == ["tester", "proposer", "proposer", "proposer",
+                                                  "scorer", "scorer", "scorer", "coder",
+                                                  "coder"]
+    assert [seed for _, _, seed in llm.calls] == list(range(90, 99))
+    added = [(n.node_id, n.parent_id, n.depth, n.state if n.depth < 2 else "code")
+             for n in of_type(events, NodeAdded)]
+    assert added == [("root", None, 0, "task"), ("p1", "root", 1, "plan"),
+                     ("p2", "root", 1, "plan"), ("p3", "root", 1, "plan"),
+                     ("k1", "p1", 2, "code"), ("k2", "p2", 2, "code")]
+    k1 = of_type(events, NodeAdded)[4]
+    assert k1.step == "code" and k1.state.strip().startswith("def add(a, b):")
+    scored = {s.node_id: s.label for s in of_type(events, NodeScored)}
+    assert scored == {"p1": "sure", "p2": "likely", "p3": "impossible",
+                      "k1": "tests failed", "k2": "tests passed"}
+    results = of_type(events, TestResult)
+    assert [(r.node_id, r.source, r.ok) for r in results] == [("k1", "own_tests", False),
+                                                              ("k2", "own_tests", True)]
+    assert [p.node_id for p in of_type(events, NodePruned)] == ["p3", "k1"]
+    chosen = of_type(events, PathChosen)[0]
+    assert chosen.node_ids == ["root", "p2", "k2"]
+    assert "return a + b" in events[-1].answer and events[-1].answer == chosen.answer
+    # The coder sees the plan; nobody sees the official tests.
+    assert "Follow this plan:\nSubtract b from a." in llm.calls[7][1]
+    assert all("def check(candidate)" not in prompt for _, prompt, _ in llm.calls)
+
+
+def test_humaneval_stops_at_first_passing_code(he_task):
+    llm = HumanEvalLLM(plans=["Add.", "Subtract.", "Zero."],
+                       labels={"Add.": "sure", "Subtract.": "likely", "Zero.": "likely"},
+                       codes={"Add.": RIGHT_CODE})
+    events = run_he(he_task, llm)
+    assert [role for role, _, _ in llm.calls].count("coder") == 1
+    assert [p.node_id for p in of_type(events, NodePruned)] == ["p3"]   # tie keeps order
+    assert of_type(events, PathChosen)[0].node_ids == ["root", "p1", "k1"]
+
+
+def test_humaneval_none_passes_takes_best_plan_code(he_task):
+    llm = HumanEvalLLM(plans=["A.", "B.", "C."],
+                       labels={"A.": "likely", "B.": "sure", "C.": "no idea"},
+                       codes={"A.": WRONG_CODE, "B.": WRONG_CODE.replace("a - b", "a * b")})
+    events = run_he(he_task, llm)
+    assert [p.node_id for p in of_type(events, NodePruned)] == ["p3", "k2"]
+    chosen = of_type(events, PathChosen)[0]
+    assert chosen.node_ids == ["root", "p2", "k1"]                      # B was scored best
+    assert "return a * b" in events[-1].answer
+
+
+def test_runner_scores_humaneval_tot(tmp_path, he_task):
+    setup = Setup(task=he_task, split="dev", model="fake", machine_id="test",
+                  base_seed=2026, llm_settings={"temperature": 0.7},
+                  approach_configs={"tot": {"humaneval_breadth": 3, "humaneval_keep": 2}})
+    llm = HumanEvalLLM(plans=["Add.", "Subtract.", "Zero."],
+                       labels={"Add.": "sure", "Subtract.": "likely", "Zero.": "impossible"},
+                       codes={"Add.": RIGHT_CODE})
+    path = tmp_path / "trace.jsonl"
+    run_experiment(setup, [TreeOfThoughts()], [he_item(he_task)], 1, llm, path,
+                   log=lambda s: None)
+    [run] = group_runs(read_trace(path)).values()
+    end = run[-1][1]
+    assert (end.status, end.correct, end.llm_calls) == ("ok", True, 8)
 
 
 def test_runner_scores_tot_answer(tmp_path):

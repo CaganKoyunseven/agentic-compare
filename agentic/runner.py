@@ -3,6 +3,7 @@
 Usage:
     python -m agentic.runner --task game24 --split dev
     python -m agentic.runner --task game24 --split test --limit 30 --approach baseline,tot
+    python -m agentic.runner --task humaneval --split test --limit 30
 
 For each repetition and each item, the chosen approaches run back to back in a fixed order
 (interleaved), so slow drift of the machine (heat, background load) does not favour one
@@ -30,6 +31,8 @@ from typing import Any
 
 from agentic.approaches.base import Approach
 from agentic.approaches.baseline import Baseline
+from agentic.approaches.multi_agent import MultiAgent
+from agentic.approaches.reflective import Reflective
 from agentic.approaches.tot import TreeOfThoughts
 from agentic.config import ROOT, load_toml, machine_id, model_name
 from agentic.events import FinalAnswer, LLMCall, RunEnd, RunStamp, RunStart
@@ -37,11 +40,13 @@ from agentic.llm.base import LLMClient
 from agentic.llm.ollama import OllamaClient, OllamaError
 from agentic.tasks.base import Item, Task
 from agentic.tasks.game24 import Game24Task
+from agentic.tasks.humaneval import HumanEvalTask
 from agentic.traces import TraceWriter, group_runs, read_trace
 
 ORDER = ["baseline", "reflective", "multi_agent", "tot"]
-APPROACHES: dict[str, Approach] = {"baseline": Baseline(), "tot": TreeOfThoughts()}
-TASKS: dict[str, type] = {"game24": Game24Task}
+APPROACHES: dict[str, Approach] = {"baseline": Baseline(), "reflective": Reflective(),
+                                   "multi_agent": MultiAgent(), "tot": TreeOfThoughts()}
+TASKS: dict[str, type] = {"game24": Game24Task, "humaneval": HumanEvalTask}
 TRACES_DIR = ROOT / "traces" / "runs"
 CSV_COLUMNS = ["run_id", "task", "approach", "item_id", "difficulty", "rep", "split", "correct",
                "tokens_in", "tokens_out", "llm_calls", "wall_ms", "model", "machine_id"]
@@ -218,14 +223,12 @@ def write_csv(trace_path: Path, csv_path: Path) -> int:
 # ---- Command line ----
 
 def choose_approaches(spec: str) -> list[Approach]:
+    """Approaches to run, in the fixed ORDER."""
     names = ORDER if spec == "all" else [n.strip() for n in spec.split(",") if n.strip()]
     unknown = [n for n in names if n not in ORDER]
     if unknown:
         raise SystemExit(f"Unknown approach {unknown}; choose from {ORDER} or 'all'")
-    missing = [n for n in names if n not in APPROACHES]
-    if spec != "all" and missing:
-        raise SystemExit(f"Not implemented yet: {missing}")
-    return [APPROACHES[n] for n in ORDER if n in names and n in APPROACHES]
+    return [APPROACHES[n] for n in ORDER if n in names]
 
 
 def main(argv: list[str] | None = None) -> int:

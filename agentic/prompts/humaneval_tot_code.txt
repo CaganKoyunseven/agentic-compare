@@ -1,0 +1,8 @@
+Complete the Python function below.
+
+{prompt}
+
+Follow this plan:
+{plan}
+
+Write the complete function in one Python code block.

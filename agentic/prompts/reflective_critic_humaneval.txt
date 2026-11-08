@@ -1,0 +1,12 @@
+You are reviewing a Python solution. Here is the task:
+
+{prompt}
+
+Here is the solution:
+
+{answer}
+
+When it was run against example tests, this happened:
+{feedback}
+
+Explain in a few sentences what is wrong with the solution and how to fix it. Do not write new code.

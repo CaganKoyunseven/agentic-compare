@@ -1,0 +1,6 @@
+Read the Python function below. Do not implement it. Write 3 to 5 test cases for it as single-line assert statements, for example:
+assert my_function(2, 3) == 5
+
+Only use behavior that the docstring clearly describes. Write each assert on one line.
+
+{prompt}

@@ -1,0 +1,8 @@
+Complete the Python function below.
+
+{prompt}
+
+The planner of your team suggests this plan:
+{planner}
+
+Follow the plan. Write the complete function in one Python code block.

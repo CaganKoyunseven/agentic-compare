@@ -1,0 +1,18 @@
+You are the planner in a team that writes Python code. Here is the task:
+
+{prompt}
+
+Your earlier plan did not work.
+Earlier plan:
+{planner}
+
+Coder's solution:
+{answer}
+
+Test result:
+{feedback}
+
+Critic's notes:
+{critic}
+
+Write a new short plan in 2 to 5 steps. Do not write code; a coder will do that from your plan.

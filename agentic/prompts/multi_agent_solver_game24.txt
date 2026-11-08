@@ -1,0 +1,6 @@
+{task_prompt}
+
+The planner of your team suggests this plan:
+{planner}
+
+Follow the plan to write the answer.
