@@ -19,6 +19,7 @@ from agentic.runner import (
 )
 from agentic.tasks.base import Item
 from agentic.tasks.game24 import Game24Task
+from agentic.tasks.humaneval import HumanEvalTask
 from agentic.traces import group_runs, read_trace
 
 ITEMS = [
@@ -156,9 +157,38 @@ def test_changed_settings_are_refused(tmp_path):
 def test_experiment_dir_and_approach_choice():
     path = experiment_dir("game24", "dev", "qwen2.5-coder:3b", "my laptop", "t1")
     assert path.name == "game24-dev-qwen2.5-coder-3b-my-laptop-t1"
-    assert [a.name for a in choose_approaches("all")] == ["baseline", "tot"]
+    assert [a.name for a in choose_approaches("all")] == ["baseline", "reflective",
+                                                          "multi_agent", "tot"]
     assert [a.name for a in choose_approaches("tot,baseline")] == ["baseline", "tot"]
     with pytest.raises(SystemExit):
         choose_approaches("baseline,magic")
-    with pytest.raises(SystemExit):
-        choose_approaches("reflective")
+
+
+def test_humaneval_data_and_splits():
+    """The committed dataset loads with its fixed splits: dev 15, test 60, no overlap."""
+    task = HumanEvalTask()
+    dev, test = task.load_items("dev"), task.load_items("test")
+    assert (len(task.load_items("all")), len(dev), len(test)) == (164, 15, 60)
+    assert not {i.item_id for i in dev} & {i.item_id for i in test}
+    assert [i.item_id for i in task.load_items("test")] == [i.item_id for i in test]
+
+
+def test_runner_scores_humaneval_with_official_tests(tmp_path):
+    """Baseline on the first real dev item: a wrong body fails the official tests, the
+    canonical solution passes them, and runs.csv gets the rows."""
+    task = HumanEvalTask()
+    item = task.load_items("dev")[0]
+    canonical = task._items_cache[item.item_id]["canonical_solution"]
+    for name, reply, expected in (("wrong", "    return None", False),
+                                  ("right", canonical, True)):
+        path = tmp_path / name / "trace.jsonl"
+        path.parent.mkdir()
+        run_experiment(make_setup(task=task), [Baseline()], [item], 1, FakeLLM(reply=reply),
+                       path, log=lambda s: None)
+        [run] = runs_of(path)
+        end = run[-1][1]
+        assert (end.status, end.correct) == ("ok", expected), end.score_message
+        with open(path.parent / "runs.csv", encoding="utf-8") as f:
+            [row] = list(csv.DictReader(f))
+        assert (row["task"], row["item_id"], row["difficulty"]) == ("humaneval",
+                                                                    item.item_id, "")

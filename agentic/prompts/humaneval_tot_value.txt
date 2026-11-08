@@ -1,0 +1,9 @@
+Judge whether the plan below solves the Python task correctly, including its edge cases.
+
+Task:
+{prompt}
+
+Plan:
+{plan}
+
+Explain briefly, then write one word on the last line: sure (the plan is correct), likely (probably correct), or impossible (the plan is wrong).

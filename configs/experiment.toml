@@ -15,8 +15,22 @@ num_predict = 512
 # Per-approach settings, filled in as the approaches are built.
 [approaches.baseline]
 
+# Reflective: at most `max_attempts` answers in total (first answer plus fixes). Each fix is
+# one critic call and one reviser call; stops early when the feedback check passes.
+[approaches.reflective]
+max_attempts = 3
+
+# Multi-agent: each round is planner, solver, feedback check, and (if the check failed) critic,
+# whose notes go to the planner of the next round. Stops early when the check passes.
+[approaches.multi_agent]
+max_rounds = 2
+
 # Tree of Thoughts: each kept node proposes steps, the first `breadth` readable ones become
 # children, each child gets one LLM score, and the best `keep` of the level survive.
+# HumanEval: `humaneval_breadth` plans (one call each), each scored once; the best
+# `humaneval_keep` become code in score order until one passes the own tests.
 [approaches.tot]
 breadth = 3
 keep = 3
+humaneval_breadth = 3
+humaneval_keep = 2

@@ -1,0 +1,14 @@
+Complete the Python function below.
+
+{prompt}
+
+Your previous solution failed:
+
+{answer}
+
+Test result:
+{feedback}
+
+Review: {critique}
+
+Write the complete corrected function in one Python code block.

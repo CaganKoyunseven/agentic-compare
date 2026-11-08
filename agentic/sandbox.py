@@ -33,7 +33,7 @@ class SandboxResult:
 
 
 class _TailReader(threading.Thread):
-    """Reads a pipe until it closes and keeps only the last `limit_bytes` bytes."""
+    """Reads a pipe until it closes, keeps only the last `limit_bytes` bytes, then closes it."""
 
     def __init__(self, pipe, limit_bytes: int):
         super().__init__(daemon=True)
@@ -51,11 +51,19 @@ class _TailReader(threading.Thread):
                     self.dropped = True
         except (OSError, ValueError):   # pipe closed under us
             pass
+        finally:
+            # The reader closes its own pipe: closing it from another thread could block while
+            # read1 still waits for a grandchild that keeps the pipe open.
+            try:
+                self.pipe.close()
+            except OSError:
+                pass
 
 
 def _tail_text(reader: _TailReader, max_chars: int) -> str:
     """Decode the kept bytes and return at most max_chars characters, marker included."""
-    text = bytes(reader.tail).decode("utf-8", errors="replace")
+    # Windows writes "\r\n" line endings; normalize so results look the same on every OS.
+    text = bytes(reader.tail).decode("utf-8", errors="replace").replace("\r\n", "\n")
     if not reader.dropped and len(text) <= max_chars:
         return text
     if max_chars <= len(TRUNCATION_MARKER):
@@ -69,8 +77,6 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
         k: v for k, v in os.environ.items()
         if not any(sub in k.upper() for sub in ["KEY", "TOKEN", "SECRET", "PASSWORD"])
     }
-    env["PYTHONUTF8"] = "1"
-    env["PYTHONIOENCODING"] = "utf-8"
 
     timed_out = False
     start_time = time.perf_counter()
@@ -87,8 +93,9 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
             kwargs["start_new_session"] = True
 
         try:
+            # -I ignores PYTHON* environment variables, so UTF-8 mode is set with -X utf8 instead.
             process = subprocess.Popen(
-                [sys.executable, "-I", str(script_path)],
+                [sys.executable, "-I", "-X", "utf8", str(script_path)],
                 cwd=tmpdir,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
