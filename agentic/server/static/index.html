@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentic AI: four approaches</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/css/demo.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-group tabs" aria-label="View">
+      <button type="button" id="tab-demo" class="tab selected" title="Demo or results (T)">Demo</button>
+      <button type="button" id="tab-results" class="tab" title="Demo or results (T)">Results</button>
+    </div>
+    <div class="topbar-group" id="scene-buttons" aria-label="Scenes"></div>
+    <div class="topbar-group" id="demo-controls">
+      <span class="mode-label" id="mode-label">REPLAY</span>
+      <button type="button" id="btn-start" class="primary" title="Start (Space)">Start</button>
+      <button type="button" id="btn-reset" title="Reset (R)">Reset</button>
+      <button type="button" id="btn-live" title="Live or replay (L)">Live</button>
+      <span class="draw-wrap" id="draw-wrap" title="Live mode only">
+        <select id="draw-difficulty" aria-label="Card difficulty">
+          <option value="easy">easy</option>
+          <option value="medium">medium</option>
+          <option value="hard">hard</option>
+        </select>
+        <button type="button" id="btn-draw">Draw card</button>
+      </span>
+      <span class="speed" title="Replay speed (+ and -)">
+        <button type="button" id="btn-slower" aria-label="Slower">&minus;</button>
+        <span id="speed-label">1&times;</span>
+        <button type="button" id="btn-faster" aria-label="Faster">+</button>
+      </span>
+    </div>
+    <div class="topbar-group topbar-right">
+      <span class="model-name" id="model-name"></span>
+      <span class="data-label demo" id="label-demo" hidden>DEMO MODE</span>
+      <span class="data-label mock" id="label-mock" hidden>MOCK DATA</span>
+      <button type="button" id="btn-help" title="Shortcuts (?)">?</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" role="alert" hidden>
+    <span id="banner-text"></span>
+    <button type="button" id="banner-close" aria-label="Close">&times;</button>
+  </div>
+
+  <section class="question" id="question">
+    <div class="question-meta" id="question-meta"></div>
+    <div class="question-body" id="question-body"></div>
+  </section>
+
+  <main class="columns" id="columns"></main>
+
+  <footer class="summary" id="summary" hidden></footer>
+
+  <section class="results" id="results" hidden></section>
+
+  <div class="overlay" id="help" hidden>
+    <div class="help-box" role="dialog" aria-label="Keyboard shortcuts">
+      <h2>Keyboard shortcuts</h2>
+      <dl>
+        <dt>1 2 3</dt><dd>Choose scene</dd>
+        <dt>Space</dt><dd>Start</dd>
+        <dt>R</dt><dd>Reset</dd>
+        <dt>L</dt><dd>Live or replay</dd>
+        <dt>D</dt><dd>Draw card (live only)</dd>
+        <dt>+ &nbsp;&minus;</dt><dd>Replay speed</dd>
+        <dt>T</dt><dd>Demo or results</dd>
+        <dt>&larr; &rarr;</dt><dd>Previous or next figure (results)</dd>
+        <dt>F</dt><dd>Full screen</dd>
+        <dt>?</dt><dd>Show or hide this help</dd>
+      </dl>
+      <p class="muted">Press Esc or ? to close.</p>
+    </div>
+  </div>
+
+  <script src="/static/vendor/d3.v7.min.js"></script>
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
