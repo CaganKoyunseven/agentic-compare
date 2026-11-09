@@ -184,6 +184,28 @@ def test_chat_stream_callback_exception_propagates():
         make_client(handler).chat_stream([{"role": "user", "content": "hi"}], on_text=on_text)
 
 
+def test_chat_stream_closes_the_response_when_stopped():
+    class Body(httpx.SyncByteStream):
+        closed = False
+
+        def __iter__(self):
+            yield ndjson(STREAM_LINES)
+
+        def close(self):
+            Body.closed = True
+
+    class Stop(Exception):
+        pass
+
+    def on_text(_text: str) -> None:
+        raise Stop
+
+    client = make_client(lambda request: httpx.Response(200, stream=Body()))
+    with pytest.raises(Stop):
+        client.chat_stream([{"role": "user", "content": "hi"}], on_text=on_text)
+    assert Body.closed
+
+
 def test_chat_stream_error_line_raises_with_reason():
     lines = [{"message": {"role": "assistant", "content": "Hel"}, "done": False},
              {"error": "llama runner process has terminated: CUDA out of memory"}]

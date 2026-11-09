@@ -24,16 +24,17 @@ from agentic.config import ROOT
 from agentic.demo_config import DRAW_SCENE, SCENE_TASKS, DemoConfig, replay_scene_for
 from agentic.events import Body, Envelope, to_dict
 from agentic.llm.base import LLMResult
-from agentic.runner import APPROACHES, ORDER, TASKS, Setup, run_one
+from agentic.runner import APPROACHES, ORDER, TASKS, RunCancelled, Setup, run_one
 from agentic.tasks.base import Item, Task
 from agentic.traces import TraceWriter
 
 LIVE_DIR = ROOT / "traces" / "live"
 BATCH_MS = 50                         # token pieces are sent at most this often
 BUSY_WAIT_S = 5.0                     # how long a new scene waits for the previous one to stop
+READER_WAIT_S = 10.0                  # a scene nobody started reading by then is stopped
 
 
-class LiveCancelled(Exception):
+class LiveCancelled(RunCancelled):
     """Raised inside a model call when the presenter stopped the live scene."""
 
 
@@ -179,9 +180,13 @@ class LiveRunner:
             self._worker = threading.Thread(target=self._work, args=(scene, item, events, stop),
                                             daemon=True)
             self._worker.start()
+        # Closing the stream stops the worker, but a stream never read cannot be closed.
+        reader_timer = threading.Timer(READER_WAIT_S, stop.set)
+        reader_timer.daemon = True
+        reader_timer.start()
         details = {"scene": scene, "item_id": item.item_id,
                    "replay_scene": replay_scene_for(scene, item.item_id)}
-        return self._stream(events, stop, details)
+        return self._stream(events, stop, details, reader_timer)
 
     def _work(self, scene: str, item: Item, events: queue.Queue, stop: threading.Event) -> None:
         try:
@@ -189,7 +194,7 @@ class LiveRunner:
                                machine_id=self.machine_id, ollama_version=self.ollama_version,
                                model_digest=self.model_digest)
             llm = StreamingLLM(self.client, events.put, stop)
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             with TraceWriter(self.live_dir / f"{stamp}-{scene}.jsonl") as writer:
                 sink = _QueueSink(writer, events)
                 for name in ORDER:
@@ -204,7 +209,9 @@ class LiveRunner:
             events.put(_Failure(exc))
 
     async def _stream(self, events: queue.Queue, stop: threading.Event,
-                      details: dict[str, str]) -> AsyncIterator[dict[str, Any]]:
+                      details: dict[str, str],
+                      reader_timer: threading.Timer) -> AsyncIterator[dict[str, Any]]:
+        reader_timer.cancel()
         try:
             while True:
                 try:

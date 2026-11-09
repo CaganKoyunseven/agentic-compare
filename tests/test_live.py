@@ -217,3 +217,34 @@ def test_csv_only_has_benchmark_runs(tmp_path):
     with TraceWriter(trace) as writer:
         run_one(setup, APPROACHES["baseline"], item, 0, 0, llm, writer)
     assert write_csv(trace, tmp_path / "runs.csv") == 1
+
+
+def test_stream_nobody_reads_stops_the_worker(tmp_path, monkeypatch):
+    monkeypatch.setattr("agentic.server.live.READER_WAIT_S", 0.05)
+    client = FakeStreamClient(delay_s=0.05)
+    runner = make_runner(tmp_path, client)
+    runner.start("easy24", None)                  # the client left before reading anything
+    assert wait_idle(runner)
+    assert client.calls_started <= 2
+
+
+def test_stopped_run_is_logged_as_cancelled(tmp_path):
+    runner = make_runner(tmp_path, FakeStreamClient(delay_s=0.05))
+
+    async def first_then_close():
+        stream = runner.start("easy24", None)
+        await anext(stream)
+        await stream.aclose()
+
+    asyncio.run(first_then_close())
+    assert wait_idle(runner)
+    trace = next(tmp_path.glob("*.jsonl"))
+    ends = [body for _, body in read_trace(trace) if body.type == "run_end"]
+    assert [end.status for end in ends] == ["cancelled"]
+
+
+def test_two_scenes_right_after_each_other_get_their_own_trace(tmp_path):
+    runner = make_runner(tmp_path)
+    collect(runner.start("easy24", None))
+    collect(runner.start("easy24", None))
+    assert len(list(tmp_path.glob("*.jsonl"))) == 2
