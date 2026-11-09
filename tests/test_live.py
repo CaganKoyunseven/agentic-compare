@@ -10,10 +10,10 @@ from agentic.demo_config import load_demo_config
 from agentic.events import RunStart
 from agentic.llm.base import LLMResult
 from agentic.llm.ollama import OllamaError
-from agentic.runner import APPROACHES, ORDER, run_one
+from agentic.runner import APPROACHES, ORDER, run_one, write_csv
 from agentic.server.live import LiveBusy, LiveFailed, LiveRunner, StreamingLLM, demo_setup
 from agentic.tasks.game24 import Game24Task
-from agentic.traces import group_runs, read_trace
+from agentic.traces import TraceWriter, group_runs, read_trace
 
 REPLY = "Let me think step by step.\n12*(7-5)/1"
 
@@ -203,3 +203,17 @@ def test_run_one_records_the_given_mode(tmp_path):
     assert isinstance(demo_sink.bodies[0], RunStart) and demo_sink.bodies[0].mode == "demo"
     assert bench_sink.bodies[0].mode == "benchmark"
     assert setup.split == "demo" and setup.base_seed == load_demo_config().seed
+
+
+def test_csv_only_has_benchmark_runs(tmp_path):
+    item = Game24Task().load_items("dev")[0]
+    setup = demo_setup(Game24Task(), load_demo_config(), model="fake:3b", machine_id="test")
+    llm = StreamingLLM(FakeStreamClient(), lambda event: None, threading.Event())
+    llm.begin_run("baseline")
+    trace = tmp_path / "trace.jsonl"
+    with TraceWriter(trace) as writer:
+        run_one(setup, APPROACHES["baseline"], item, 0, 0, llm, writer, mode="demo")
+    assert write_csv(trace, tmp_path / "runs.csv") == 0
+    with TraceWriter(trace) as writer:
+        run_one(setup, APPROACHES["baseline"], item, 0, 0, llm, writer)
+    assert write_csv(trace, tmp_path / "runs.csv") == 1

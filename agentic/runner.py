@@ -196,13 +196,15 @@ def run_experiment(setup: Setup, approaches: list[Approach], items: list[Item], 
 
 
 def write_csv(trace_path: Path, csv_path: Path) -> int:
-    """Derive the results table (contract 6.3) from a trace. Only runs with status ok are
-    rows. Returns the number of rows."""
+    """Derive the results table (contract 6.3) from a trace. Only benchmark runs with status
+    ok are rows, so demo timings can never enter the results. Returns the number of rows."""
     rows: dict[tuple, dict] = {}
     for run in group_runs(read_trace(trace_path)).values():
         env, start = run[0]
         end = run[-1][1]
         if start.type != "run_start" or end.type != "run_end" or end.status != "ok":
+            continue
+        if start.mode != "benchmark":
             continue
         # A later run of the same (model, approach, item, rep) replaces an earlier one.
         rows[(env.model, env.approach, env.item_id, env.rep)] = {
