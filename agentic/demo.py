@@ -20,7 +20,7 @@ from agentic.demo_config import DemoConfig, load_demo_config
 from agentic.llm.ollama import OllamaClient, OllamaError
 from agentic.server.app import HOST, create_app
 from agentic.server.live import LiveRunner
-from agentic.server.sessions import default_traces_dir
+from agentic.server.sessions import default_traces_dir, draw_pool
 
 # Read timeout of live calls. Streaming sends a piece every few hundred ms, so 30 s without
 # one means Ollama hangs; the presenter should see an error, not two silent minutes.
@@ -43,6 +43,7 @@ def prepare_live(demo: DemoConfig, *, transport: httpx.BaseTransport | None = No
         warm = warmer.chat([{"role": "user", "content": "Reply with OK."}])
         warmer.close()
         log(f"Model {model} warm ({warm.wall_ms / 1000:.1f} s), Ollama {version}")
+        draw_pool(demo)     # loads the puzzle set now, so the first card or scene is instant
     except (RuntimeError, ValueError, OllamaError, httpx.HTTPError) as exc:
         # ValueError: an answer that is not JSON (another program on the Ollama port).
         reason = str(exc) or type(exc).__name__

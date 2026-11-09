@@ -177,7 +177,7 @@ def create_app(traces_dir: Path | None = None, results_dir: Path | None = None,
     @app.get("/api/draw")
     def draw(difficulty: str = "easy") -> dict[str, Any]:
         try:
-            return draw_card(difficulty)
+            return draw_card(difficulty, demo=live.demo if live else None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
