@@ -246,7 +246,8 @@ def test_live_draw_from_pool_streams(live_client):
     assert {d["item_id"] for _, d in messages if d.get("type") == "run_start"} == {"game24/0068"}
 
 
-def test_live_busy_409(scene_dir, tmp_path):
+def test_live_busy_409(scene_dir, tmp_path, monkeypatch):
+    monkeypatch.setattr("agentic.server.live.BUSY_WAIT_S", 0.0)
     runner = make_runner(tmp_path / "live", FakeStreamClient(delay_s=0.05))
     busy_client = TestClient(create_app(scene_dir, live=runner))
 

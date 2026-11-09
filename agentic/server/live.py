@@ -30,6 +30,7 @@ from agentic.traces import TraceWriter
 
 LIVE_DIR = ROOT / "traces" / "live"
 BATCH_MS = 50                         # token pieces are sent at most this often
+BUSY_WAIT_S = 5.0                     # how long a new scene waits for the previous one to stop
 
 
 class LiveCancelled(Exception):
@@ -171,6 +172,8 @@ class LiveRunner:
         events: queue.Queue = queue.Queue()
         stop = threading.Event()
         with self._start_lock:
+            if self.busy:
+                self._worker.join(BUSY_WAIT_S)    # Reset then Start: the old run is stopping
             if self.busy:
                 raise LiveBusy("a live scene is already running")
             self._worker = threading.Thread(target=self._work, args=(scene, item, events, stop),

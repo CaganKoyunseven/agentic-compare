@@ -124,7 +124,26 @@ def test_close_early_stops_the_run_and_frees_the_runner(tmp_path):
     collect(runner.start("hard24", None))         # the runner is free again
 
 
-def test_second_start_while_running_is_busy(tmp_path):
+def test_start_waits_for_a_run_that_is_stopping(tmp_path):
+    # Reset followed at once by Start: the old worker needs a moment to see the stop flag.
+    runner = make_runner(tmp_path, FakeStreamClient(delay_s=0.3))
+
+    async def scenario():
+        stream = runner.start("easy24", None)
+        await anext(stream)
+        await stream.aclose()
+        assert runner.busy
+        again = runner.start("hard24", None)
+        first = await anext(again)
+        await again.aclose()
+        return first
+
+    assert asyncio.run(scenario())["type"] == "run_start"
+    assert wait_idle(runner)
+
+
+def test_second_start_while_running_is_busy(tmp_path, monkeypatch):
+    monkeypatch.setattr("agentic.server.live.BUSY_WAIT_S", 0.0)
     runner = make_runner(tmp_path, FakeStreamClient(delay_s=0.05))
 
     async def scenario():
