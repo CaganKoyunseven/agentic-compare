@@ -1,5 +1,7 @@
 """Tests for the demo launcher's Ollama check, with a fake HTTP transport (no Ollama needed)."""
 
+import dataclasses
+
 import httpx
 import pytest
 
@@ -41,6 +43,22 @@ def test_prepare_live_ok():
     assert any("warm" in line for line in logs)
     chat = next(r for r in seen if r.url.path == "/api/chat")
     assert b'"keep_alive":"60m"' in chat.content.replace(b" ", b"")
+
+
+def test_prepare_live_loads_the_draw_pool(monkeypatch):
+    # The first card must not wait for the puzzle set to load on stage.
+    loaded = []
+    monkeypatch.setattr("agentic.demo.draw_pool", loaded.append)
+    demo = load_demo_config()
+    prepare_live(demo, transport=fake_ollama(), log=lambda _line: None)
+    assert loaded == [demo]
+
+
+def test_prepare_live_bad_draw_pool_is_replay_only():
+    demo = dataclasses.replace(load_demo_config(), pool={"easy": ["game24/9999"]})
+    runner, reason = prepare_live(demo, transport=fake_ollama(), log=lambda _line: None)
+    assert runner is None
+    assert "draw pool" in reason
 
 
 def test_prepare_live_unreachable():

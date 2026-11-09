@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import json
 import random
 
@@ -124,7 +125,7 @@ def test_draw_card_only_from_pool_and_names_replay():
 def test_draw_card_errors(monkeypatch):
     with pytest.raises(ValueError):
         sessions.draw_card("impossible")
-    monkeypatch.setattr(sessions, "draw_pool", dict)
+    monkeypatch.setattr(sessions, "draw_pool", lambda demo=None: {})
     with pytest.raises(ValueError):
         sessions.draw_card("easy")
 
@@ -244,6 +245,14 @@ def test_live_draw_from_pool_streams(live_client):
     messages = parse_sse(live_client.get("/api/live/draw?item_id=game24/0068").text)
     assert messages[-1] == ("end", {})
     assert {d["item_id"] for _, d in messages if d.get("type") == "run_start"} == {"game24/0068"}
+
+
+def test_draw_uses_the_pool_the_live_runner_has(scene_dir, live_runner):
+    # The runner only accepts its own pool, so a card from an edited demo.toml would be a 404.
+    live_runner.demo = dataclasses.replace(live_runner.demo, pool={"easy": ["game24/0068"]})
+    client = TestClient(create_app(scene_dir, live=live_runner))
+    for _ in range(5):
+        assert client.get("/api/draw?difficulty=easy").json()["item_id"] == "game24/0068"
 
 
 def test_live_busy_409(scene_dir, tmp_path, monkeypatch):

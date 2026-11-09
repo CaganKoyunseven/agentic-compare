@@ -90,6 +90,10 @@ def experiment_dir(task: str, split: str, model: str, machine: str, tag: str = "
 
 # ---- One run ----
 
+class RunCancelled(Exception):
+    """Raised inside an approach when somebody stopped the run on purpose (not a failure)."""
+
+
 def run_one(setup: Setup, approach: Approach, item: Item, index: int, rep: int,
             llm: LLMClient, writer: TraceWriter, mode: str = "benchmark") -> RunEnd:
     """Run one approach on one item and write all its events. Returns the run_end event.
@@ -122,7 +126,7 @@ def run_one(setup: Setup, approach: Approach, item: Item, index: int, rep: int,
         if answer is None:
             raise RuntimeError(f"{approach.name} ended without a final_answer event")
     except (KeyboardInterrupt, Exception) as e:
-        status = "cancelled" if isinstance(e, KeyboardInterrupt) else "error"
+        status = "cancelled" if isinstance(e, (KeyboardInterrupt, RunCancelled)) else "error"
         end = RunEnd(status=status, answer=answer, error=f"{type(e).__name__}: {e}",
                      wall_ms=_ms_since(start), **totals)
         writer.write(stamp.next(), end)
@@ -196,13 +200,15 @@ def run_experiment(setup: Setup, approaches: list[Approach], items: list[Item], 
 
 
 def write_csv(trace_path: Path, csv_path: Path) -> int:
-    """Derive the results table (contract 6.3) from a trace. Only runs with status ok are
-    rows. Returns the number of rows."""
+    """Derive the results table (contract 6.3) from a trace. Only benchmark runs with status
+    ok are rows, so demo timings can never enter the results. Returns the number of rows."""
     rows: dict[tuple, dict] = {}
     for run in group_runs(read_trace(trace_path)).values():
         env, start = run[0]
         end = run[-1][1]
         if start.type != "run_start" or end.type != "run_end" or end.status != "ok":
+            continue
+        if start.mode != "benchmark":
             continue
         # A later run of the same (model, approach, item, rep) replaces an earlier one.
         rows[(env.model, env.approach, env.item_id, env.rep)] = {
