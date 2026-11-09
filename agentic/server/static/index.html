@@ -43,6 +43,10 @@
 
   <div class="banner" id="banner" role="alert" hidden>
     <span id="banner-text"></span>
+    <span class="banner-actions" id="banner-actions" hidden>
+      <button type="button" id="btn-switch-now">Switch now (N)</button>
+      <button type="button" id="btn-stay">Stay (S)</button>
+    </span>
     <button type="button" id="banner-close" aria-label="Close">&times;</button>
   </div>
 
@@ -66,6 +70,8 @@
         <dt>R</dt><dd>Reset</dd>
         <dt>L</dt><dd>Live or replay</dd>
         <dt>D</dt><dd>Draw card (live only)</dd>
+        <dt>N</dt><dd>After a live failure: replay now</dd>
+        <dt>S</dt><dd>After a live failure: stay</dd>
         <dt>+ &nbsp;&minus;</dt><dd>Replay speed</dd>
         <dt>T</dt><dd>Demo or results</dd>
         <dt>&larr; &rarr;</dt><dd>Previous or next figure (results)</dd>

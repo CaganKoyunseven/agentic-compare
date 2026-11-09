@@ -1,7 +1,8 @@
 // One SSE connection. Replay and live use the same message format:
 //   data: <event>          one event dict per message
 //   event: end             stream finished
-//   event: error           server reported a failure, data.message says why
+//   event: error           server reported a failure, data.message says why (live mode:
+//                          data.replay_scene names the recording of the same puzzle)
 
 export function openStream(url, { onEvent, onEnd, onError }) {
   const source = new EventSource(url);
@@ -38,12 +39,14 @@ export function openStream(url, { onEvent, onEnd, onError }) {
     close();
     if (msg.data) {
       let text = msg.data;
+      let details = {};
       try {
-        text = JSON.parse(msg.data).message || text;
+        details = JSON.parse(msg.data);
+        text = details.message || text;
       } catch {
         // keep the raw text
       }
-      onError(text);
+      onError(text, details);
     } else {
       onError("Connection to the demo server was lost");
     }

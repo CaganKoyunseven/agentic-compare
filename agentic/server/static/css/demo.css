@@ -116,6 +116,8 @@ button.scene.selected { background: var(--text); color: var(--bg); border-color:
 .banner.error { background: var(--fail); color: var(--fail-ink); }
 .banner.info { background: var(--info); color: #0b1a33; }
 .banner button { background: transparent; border-color: currentColor; color: inherit; }
+.banner-actions { display: flex; gap: 0.5rem; white-space: nowrap; }
+.banner-actions[hidden] { display: none; }
 
 /* ---- Question ---- */
 

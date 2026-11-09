@@ -19,6 +19,8 @@ export function installShortcuts(actions) {
     else if (key === "t" || key === "T") actions.tab();
     else if (key === "ArrowLeft") actions.prev();
     else if (key === "ArrowRight") actions.next();
+    else if (key === "n" || key === "N") actions.switchNow();
+    else if (key === "s" || key === "S") actions.stay();
     else if (key === "?") actions.help();
     else if (key === "Escape") actions.closeHelp();
     else handled = false;
