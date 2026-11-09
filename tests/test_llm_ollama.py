@@ -114,3 +114,82 @@ def test_server_info_reads_version_and_digest():
             {"name": "other:1b", "digest": "aaa"}, {"name": "fake:3b", "digest": "bbb"}]})
 
     assert make_client(handler).server_info() == ("1.2.3", "bbb")
+
+
+# ---- streaming ----
+
+STREAM_LINES = [
+    {"message": {"role": "assistant", "content": "Hel"}, "done": False},
+    {"message": {"role": "assistant", "content": ""}, "done": False},
+    {"done": False},
+    {"message": {"role": "assistant", "content": "lo"}, "done": False},
+    {"model": "fake:3b", "message": {"role": "assistant", "content": ""}, "done": True,
+     "done_reason": "stop", "prompt_eval_count": 35, "eval_count": 2,
+     "load_duration": 5_000_000},
+]
+
+
+def ndjson(lines: list[dict]) -> bytes:
+    return "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
+
+
+def test_chat_stream_calls_on_text_and_returns_totals():
+    seen_body = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_body.update(json.loads(request.content))
+        return httpx.Response(200, content=ndjson(STREAM_LINES))
+
+    pieces = []
+    result = make_client(handler).chat_stream(
+        [{"role": "user", "content": "hello"}], seed=7, on_text=pieces.append)
+
+    assert seen_body["stream"] is True
+    assert seen_body["options"]["seed"] == 7
+    assert pieces == ["Hel", "lo"]
+    assert result.text == "Hello"
+    assert result.tokens_in == 35
+    assert result.tokens_out == 2
+    assert result.load_ms == 5
+    assert result.done_reason == "stop"
+
+
+def test_chat_stream_http_error_raises():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "model 'fake:3b' not found"})
+
+    with pytest.raises(OllamaError, match="404"):
+        make_client(handler).chat_stream([{"role": "user", "content": "hi"}], on_text=print)
+
+
+def test_chat_stream_unreachable_raises():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(OllamaError, match="Cannot reach Ollama"):
+        make_client(handler).chat_stream([{"role": "user", "content": "hi"}], on_text=print)
+
+
+def test_chat_stream_callback_exception_propagates():
+    class Stop(Exception):
+        pass
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=ndjson(STREAM_LINES))
+
+    def on_text(_text: str) -> None:
+        raise Stop
+
+    with pytest.raises(Stop):
+        make_client(handler).chat_stream([{"role": "user", "content": "hi"}], on_text=on_text)
+
+
+def test_chat_stream_error_line_raises_with_reason():
+    lines = [{"message": {"role": "assistant", "content": "Hel"}, "done": False},
+             {"error": "llama runner process has terminated: CUDA out of memory"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=ndjson(lines))
+
+    with pytest.raises(OllamaError, match="CUDA out of memory"):
+        make_client(handler).chat_stream([{"role": "user", "content": "hi"}], on_text=print)

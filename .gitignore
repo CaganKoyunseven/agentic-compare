@@ -11,5 +11,6 @@ __pycache__/
 Thumbs.db
 *.log
 traces/runs/
+traces/live/
 *.gguf
 traces/mock/

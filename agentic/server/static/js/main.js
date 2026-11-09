@@ -9,13 +9,17 @@ import { renderSummary } from "./summary.js";
 
 const SCENE_NAMES = { easy24: "Easy 24", hard24: "Hard 24", humaneval: "HumanEval" };
 const SPEEDS = [0.5, 1, 2, 4, 8];
+const POOL_PREFIX = "pool-";     // recordings of draw-card puzzles, not scenes of their own
+const FALLBACK_SECONDS = 10;
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  scenes: [],
+  scenes: [],           // the scene buttons
+  recordings: [],       // every recording: the scenes and the draw-card puzzles
   scene: null,
   mode: "replay",
+  liveStatus: null,     // /api/status once known: {live, model, reason}
   speedIndex: SPEEDS.indexOf(1),
   stream: null,
   playing: false,
@@ -38,6 +42,7 @@ let bannerTimer = null;
 
 function showBanner(text, kind = "error") {
   clearTimeout(bannerTimer);
+  stopCountdown();
   $("banner").className = `banner ${kind}`;
   $("banner-text").textContent = text;
   $("banner").hidden = false;
@@ -46,7 +51,52 @@ function showBanner(text, kind = "error") {
 
 function hideBanner() {
   clearTimeout(bannerTimer);
+  stopCountdown();
   $("banner").hidden = true;
+}
+
+// ---- Fallback from live to replay ----
+
+let countdownTimer = null;
+let fallbackScene = null;
+
+function stopCountdown() {
+  clearInterval(countdownTimer);
+  countdownTimer = null;
+  $("banner-actions").hidden = true;
+}
+
+// A live scene failed: replay the same puzzle after a countdown, unless the presenter stays.
+function startFallback(message, replayScene) {
+  // A drawn card that was not recorded falls back to the selected scene's recording.
+  fallbackScene = state.recordings.find((s) => s.id === replayScene) || state.scene;
+  showBanner("", "error");
+  $("banner-actions").hidden = false;
+  let left = FALLBACK_SECONDS;
+  const show = () => {
+    $("banner-text").textContent =
+      `Live failed: ${message}. Replay of ${sceneName(fallbackScene)} in ${left} s`;
+  };
+  show();
+  countdownTimer = setInterval(() => {
+    left -= 1;
+    if (left > 0) show();
+    else switchToReplay();
+  }, 1000);
+}
+
+function switchToReplay() {
+  if (countdownTimer === null) return;
+  state.mode = "replay";
+  state.drawn = null;
+  setScene(fallbackScene);
+  start();
+  showBanner("Live failed, showing the recorded replay", "info");
+}
+
+function stayLive() {
+  if (countdownTimer === null) return;
+  showBanner("Staying in live mode. Press L for replay.", "info");
 }
 
 // ---- Labels from the data ----
@@ -61,7 +111,10 @@ function setDataLabels(model, mode) {
 
 // ---- Question panel ----
 
+const isPoolRecording = (scene) => scene.id.startsWith(POOL_PREFIX);
+
 function sceneName(scene) {
+  if (isPoolRecording(scene)) return "Drawn card";
   return SCENE_NAMES[scene.id] || scene.id;
 }
 
@@ -128,8 +181,8 @@ function routeEvent(ev) {
 function streamUrl() {
   const scene = encodeURIComponent(state.scene.id);
   if (state.mode === "live") {
-    const item = state.drawn ? `?item_id=${encodeURIComponent(state.drawn.item_id)}` : "";
-    return `/api/live/${scene}${item}`;
+    if (state.drawn) return `/api/live/draw?item_id=${encodeURIComponent(state.drawn.item_id)}`;
+    return `/api/live/${scene}`;
   }
   return `/api/replay/${scene}?speed=${speed()}`;
 }
@@ -150,11 +203,17 @@ function start() {
       requestAnimationFrame(() => columns.forEach((c) => c.afterLayout()));
       updateControls();
     },
-    onError: (message) => {
+    onError: (message, details = {}) => {
       state.stream = null;
       state.playing = false;
       state.finished = true;
-      showBanner(message);
+      if (state.mode === "live") {
+        const running = byApproach.get(state.currentApproach);
+        if (running && running.status === "running") running.setStatus("error");
+        startFallback(message, details.replay_scene);
+      } else {
+        showBanner(message);
+      }
       updateControls();
     },
   });
@@ -170,25 +229,28 @@ function reset() {
   $("summary").hidden = true;
   clear($("summary"));
   hideBanner();
-  if (state.scene) setDataLabels(state.scene.model, state.scene.mode);
+  if (state.mode === "live") setDataLabels(state.liveStatus.model, "demo");
+  else if (state.scene) setDataLabels(state.scene.model, state.scene.mode);
   showQuestionPlaceholder();
   updateControls();
 }
 
-function selectScene(index) {
-  const scene = state.scenes[index];
-  if (!scene) return;
+function setScene(scene) {
   state.scene = scene;
   state.drawn = null;
   reset();
   document.querySelectorAll("#scene-buttons button").forEach((b, i) => {
-    b.classList.toggle("selected", i === index);
+    b.classList.toggle("selected", state.scenes[i] === scene);
   });
+}
+
+function selectScene(index) {
+  if (state.scenes[index]) setScene(state.scenes[index]);
 }
 
 // ---- Live mode and draw card ----
 
-async function toggleLive() {
+function toggleLive() {
   if (state.playing) return;
   if (state.mode === "live") {
     state.mode = "replay";
@@ -197,25 +259,19 @@ async function toggleLive() {
     return;
   }
   if (!state.scene) return;
-  // Ask the live endpoint once; stop reading as soon as the status is known.
-  const controller = new AbortController();
-  try {
-    const response = await fetch(`/api/live/${encodeURIComponent(state.scene.id)}`,
-      { signal: controller.signal });
-    controller.abort();
-    if (response.status === 501) {
-      showBanner("Live mode is not connected, staying in replay", "info");
-      return;
-    }
-    if (!response.ok) {
-      showBanner(`Live mode is not available (HTTP ${response.status}), staying in replay`);
-      return;
-    }
-    state.mode = "live";
-    reset();
-  } catch (err) {
-    showBanner(`Live mode check failed: ${err.message}`);
+  if (!isLiveAvailable()) {
+    const reason = state.liveStatus ? state.liveStatus.reason : "status not known yet";
+    showBanner(`Live mode is not available (${reason}), staying in replay`, "info");
+    return;
   }
+  state.mode = "live";
+  // A drawn card's recording (after a fallback) cannot run live; go back to a real scene.
+  if (isPoolRecording(state.scene)) selectScene(0);
+  else reset();
+}
+
+function isLiveAvailable() {
+  return state.liveStatus !== null && state.liveStatus.live;
 }
 
 async function drawCard() {
@@ -290,11 +346,13 @@ function resultsOnly(action) {
 
 function updateControls() {
   const live = state.mode === "live";
-  $("mode-label").textContent = live ? "LIVE" : "REPLAY";
+  const replayOnly = state.liveStatus !== null && !state.liveStatus.live;
+  $("mode-label").textContent = live ? "LIVE" : (replayOnly ? "REPLAY ONLY" : "REPLAY");
   $("mode-label").classList.toggle("live", live);
   $("btn-live").textContent = live ? "Replay" : "Live";
+  $("btn-live").title = replayOnly ? `Replay only: ${state.liveStatus.reason}` : "Live or replay (L)";
   $("btn-start").disabled = !state.scene || state.playing;
-  $("btn-live").disabled = state.playing;
+  $("btn-live").disabled = state.playing || replayOnly;
   const drawOk = live && canDraw() && !state.playing;
   $("btn-draw").disabled = !drawOk;
   $("draw-difficulty").disabled = !drawOk;
@@ -345,6 +403,8 @@ bindButton("btn-slower", () => changeSpeed(-1));
 bindButton("btn-faster", () => changeSpeed(1));
 bindButton("btn-help", () => toggleHelp());
 bindButton("banner-close", hideBanner);
+bindButton("btn-switch-now", switchToReplay);
+bindButton("btn-stay", stayLive);
 bindButton("tab-demo", () => showTab("demo"));
 bindButton("tab-results", () => showTab("results"));
 window.addEventListener("resize", () => columns.forEach((c) => c.afterLayout()));
@@ -360,6 +420,8 @@ installShortcuts({
   draw: demoOnly(drawCard),
   faster: demoOnly(() => changeSpeed(1)),
   slower: demoOnly(() => changeSpeed(-1)),
+  switchNow: switchToReplay,
+  stay: stayLive,
   tab: toggleTab,
   prev: resultsOnly(() => resultsView.move(-1)),
   next: resultsOnly(() => resultsView.move(1)),
@@ -377,7 +439,8 @@ async function loadScenes() {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.detail || `HTTP ${response.status}`);
     }
-    state.scenes = await response.json();
+    state.recordings = await response.json();
+    state.scenes = state.recordings.filter((scene) => !isPoolRecording(scene));
   } catch (err) {
     showBanner(`Could not load the scenes: ${err.message}`);
     updateControls();
@@ -399,5 +462,17 @@ async function loadScenes() {
   }
 }
 
+async function loadStatus() {
+  try {
+    const response = await fetch("/api/status");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.liveStatus = await response.json();
+  } catch (err) {
+    state.liveStatus = { live: false, model: null, reason: `status check failed: ${err.message}` };
+  }
+  updateControls();
+}
+
 updateControls();
+loadStatus();
 loadScenes();

@@ -91,7 +91,7 @@ def experiment_dir(task: str, split: str, model: str, machine: str, tag: str = "
 # ---- One run ----
 
 def run_one(setup: Setup, approach: Approach, item: Item, index: int, rep: int,
-            llm: LLMClient, writer: TraceWriter) -> RunEnd:
+            llm: LLMClient, writer: TraceWriter, mode: str = "benchmark") -> RunEnd:
     """Run one approach on one item and write all its events. Returns the run_end event.
     An error inside the approach is recorded and the experiment goes on; Ctrl-C and a lost
     Ollama connection are recorded and then stop the experiment."""
@@ -102,7 +102,7 @@ def run_one(setup: Setup, approach: Approach, item: Item, index: int, rep: int,
                      item_id=item.item_id, rep=rep, model=setup.model,
                      machine_id=setup.machine_id)
     writer.write(stamp.next(), RunStart(
-        split=setup.split, mode="benchmark", seed=seed, config=config,
+        split=setup.split, mode=mode, seed=seed, config=config,
         config_hash=config_hash(config), ollama_version=setup.ollama_version,
         model_digest=setup.model_digest, payload=item.payload, difficulty=item.difficulty))
 
