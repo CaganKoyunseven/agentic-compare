@@ -10,7 +10,7 @@ reps = 3
 [llm]
 temperature = 0.7
 num_ctx = 4096
-num_predict = 512
+num_predict = 1024
 
 # Per-approach settings, filled in as the approaches are built.
 [approaches.baseline]
