@@ -24,6 +24,11 @@ def ollama_host() -> str:
     return os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST
 
 
+def llm_backend() -> str:
+    """Which backend answers the LLM calls: "ollama" (default, local) or "openai"."""
+    return os.environ.get("LLM_BACKEND", "").strip().lower() or "ollama"
+
+
 def _required(var: str) -> str:
     value = os.environ.get(var, "").strip()
     if not value:
@@ -34,6 +39,11 @@ def _required(var: str) -> str:
 def model_name() -> str:
     """Model from .env; raises if it is not set, so a run never uses an unknown model."""
     return _required("MODEL_NAME")
+
+
+def openai_api_key() -> str:
+    """API key from .env; only read when LLM_BACKEND is openai."""
+    return _required("OPENAI_API_KEY")
 
 
 def machine_id() -> str:

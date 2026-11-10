@@ -50,4 +50,5 @@ class Caller:
         return LLMCall(call_id=call_id, role=role, messages=messages, response=result.text,
                        tokens_in=result.tokens_in, tokens_out=result.tokens_out,
                        wall_ms=result.wall_ms, load_ms=result.load_ms,
-                       done_reason=result.done_reason, seed=seed)
+                       done_reason=result.done_reason, seed=seed,
+                       system_fingerprint=result.system_fingerprint)

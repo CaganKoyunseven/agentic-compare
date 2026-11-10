@@ -21,8 +21,9 @@ from agentic.demo_config import (
     load_demo_config,
     replay_scene_for,
 )
+from agentic.llm.backend import make_client
 from agentic.llm.base import LLMClient
-from agentic.llm.ollama import OllamaClient, OllamaError
+from agentic.llm.ollama import OllamaError
 from agentic.runner import APPROACHES, ORDER, TASKS, run_one
 from agentic.server.live import demo_setup
 from agentic.traces import TraceWriter
@@ -82,13 +83,13 @@ def main(argv: list[str] | None = None) -> int:
 
     demo = load_demo_config()
     model, machine = model_name(), machine_id()
-    llm = OllamaClient(model, **demo.llm_settings, keep_alive=demo.keep_alive)
+    llm = make_client(model, **demo.llm_settings, keep_alive=demo.keep_alive)
     try:
         version, digest = llm.server_info()
         if digest is None:
             raise SystemExit(f"Model {model} is not installed in Ollama (ollama pull {model})")
         warm = llm.chat([{"role": "user", "content": "Reply with OK."}])
-        print(f"Model {model} warm ({warm.wall_ms / 1000:.1f} s), Ollama {version}")
+        print(f"Model {model} warm ({warm.wall_ms / 1000:.1f} s), backend {version}")
         only = [n.strip() for n in args.only.split(",") if n.strip()] if args.only else None
         paths = record(demo, llm, args.out, model=model, machine_id=machine,
                        ollama_version=version, model_digest=digest, only=only)
