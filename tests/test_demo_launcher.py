@@ -29,6 +29,8 @@ def fake_ollama(models=("fake:3b",), seen=None):
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
+    # These tests use a fake Ollama, so a local .env with another backend must not leak in.
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
     monkeypatch.setenv("MODEL_NAME", "fake:3b")
     monkeypatch.setenv("MACHINE_ID", "test-box")
 
