@@ -122,6 +122,7 @@ button.scene.selected { background: var(--text); color: var(--bg); border-color:
 /* ---- Question ---- */
 
 .question {
+  flex: none;     /* long column content must not squeeze the prompt over the top bar */
   display: flex;
   align-items: center;
   gap: 1.5rem;
@@ -262,7 +263,7 @@ button.scene.selected { background: var(--text); color: var(--bg); border-color:
   gap: 0.35rem;
   padding: 0.15rem 0.6rem;
   border: 2px solid;
-  border-radius: 999px;
+  border-radius: 10px;     /* a pill radius breaks when a long message wraps to several lines */
   font-size: 0.85rem;
 }
 .badge.ok { border-color: var(--ok); color: var(--ok); }

@@ -17,7 +17,8 @@ import httpx
 
 from agentic.config import machine_id, model_name
 from agentic.demo_config import DemoConfig, load_demo_config
-from agentic.llm.ollama import OllamaClient, OllamaError
+from agentic.llm.backend import make_client
+from agentic.llm.ollama import OllamaError
 from agentic.server.app import HOST, create_app
 from agentic.server.live import LiveRunner
 from agentic.server.sessions import default_traces_dir, draw_pool
@@ -32,17 +33,17 @@ def prepare_live(demo: DemoConfig, *, transport: httpx.BaseTransport | None = No
     """A ready LiveRunner and "", or None and the reason live mode is not available."""
     try:
         model, machine = model_name(), machine_id()
-        client = OllamaClient(model, **demo.llm_settings, keep_alive=demo.keep_alive,
+        client = make_client(model, **demo.llm_settings, keep_alive=demo.keep_alive,
                               timeout_s=LIVE_TIMEOUT_S, transport=transport)
         version, digest = client.server_info()
         if digest is None:
             raise RuntimeError(f"Model {model} is not installed in Ollama (ollama pull {model})")
         # Loading the model can take longer than LIVE_TIMEOUT_S, so warm with the default.
-        warmer = OllamaClient(model, **demo.llm_settings, keep_alive=demo.keep_alive,
+        warmer = make_client(model, **demo.llm_settings, keep_alive=demo.keep_alive,
                               transport=transport)
         warm = warmer.chat([{"role": "user", "content": "Reply with OK."}])
         warmer.close()
-        log(f"Model {model} warm ({warm.wall_ms / 1000:.1f} s), Ollama {version}")
+        log(f"Model {model} warm ({warm.wall_ms / 1000:.1f} s), backend {version}")
         draw_pool(demo)     # loads the puzzle set now, so the first card or scene is instant
     except (RuntimeError, ValueError, OllamaError, httpx.HTTPError) as exc:
         # ValueError: an answer that is not JSON (another program on the Ollama port).

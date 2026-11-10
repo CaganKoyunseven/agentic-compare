@@ -99,6 +99,7 @@ class LLMCall(_Strict):
     load_ms: int
     done_reason: str
     seed: int | None = None
+    system_fingerprint: str | None = None
 
 
 class Token(_Strict):

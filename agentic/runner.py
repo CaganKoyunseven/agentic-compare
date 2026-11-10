@@ -36,8 +36,9 @@ from agentic.approaches.reflective import Reflective
 from agentic.approaches.tot import TreeOfThoughts
 from agentic.config import ROOT, load_toml, machine_id, model_name
 from agentic.events import FinalAnswer, LLMCall, RunEnd, RunStamp, RunStart
+from agentic.llm.backend import make_client
 from agentic.llm.base import LLMClient
-from agentic.llm.ollama import OllamaClient, OllamaError
+from agentic.llm.ollama import OllamaError
 from agentic.tasks.base import Item, Task
 from agentic.tasks.game24 import Game24Task
 from agentic.tasks.humaneval import HumanEvalTask
@@ -253,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     task = TASKS[args.task]()
     items = task.load_items(args.split)[:args.limit]
     model, machine = model_name(), machine_id()
-    llm = OllamaClient(model, **settings["llm"])
+    llm = make_client(model, **settings["llm"])
     version, digest = llm.server_info()
     if digest is None:
         raise SystemExit(f"Model {model} is not installed in Ollama (ollama pull {model})")
@@ -265,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Warm-up call (not recorded), so the first run does not pay the model load time.
     warm = llm.chat([{"role": "user", "content": "Reply with OK."}])
-    print(f"Model {model} warm (load {warm.load_ms} ms), Ollama {version}")
+    print(f"Model {model} warm (load {warm.load_ms} ms), backend {version}")
     try:
         run_experiment(setup, approaches, items, args.reps or settings["reps"], llm,
                        trace_path)

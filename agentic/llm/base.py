@@ -17,6 +17,7 @@ class LLMResult:
     load_ms: int                      # model load time reported by the backend (0 when warm)
     model: str
     done_reason: str                  # "stop" or "length" (hit max tokens)
+    system_fingerprint: str | None = None   # cloud API server configuration, None for Ollama
 
 
 class LLMClient(Protocol):
