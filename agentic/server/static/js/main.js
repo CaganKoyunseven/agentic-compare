@@ -296,10 +296,24 @@ function canDraw() {
 }
 
 // ---- Demo and results tabs ----
+// "results" shows the main comparison; "sc" the separate self-consistency study (own folder).
 
-const resultsView = new ResultsView($("results"), {
+const TABS = ["demo", "results", "sc"];
+const resultViews = {
+  results: { section: "results", tab: "tab-results" },
+  sc: { section: "results-sc", tab: "tab-sc" },
+};
+resultViews.results.view = new ResultsView($("results"), {
   onFake: (fake) => {
     if (state.tab === "results") $("label-mock").hidden = !fake;
+  },
+  onError: (message) => showBanner(message),
+});
+resultViews.sc.view = new ResultsView($("results-sc"), {
+  section: "self_consistency",
+  emptyText: "No self-consistency results yet",
+  onFake: (fake) => {
+    if (state.tab === "sc") $("label-mock").hidden = !fake;
   },
   onError: (message) => showBanner(message),
 });
@@ -311,9 +325,11 @@ function showTab(tab) {
     $(id).hidden = !demo;
   }
   $("summary").hidden = !(demo && state.finished && $("summary").childElementCount > 0);
-  $("results").hidden = demo;
   $("tab-demo").classList.toggle("selected", demo);
-  $("tab-results").classList.toggle("selected", !demo);
+  for (const [name, r] of Object.entries(resultViews)) {
+    $(r.section).hidden = name !== tab;
+    $(r.tab).classList.toggle("selected", name === tab);
+  }
   if (demo) {
     setDataLabels(state.labels.model, state.labels.mode);
     requestAnimationFrame(() => columns.forEach((c) => c.afterLayout()));
@@ -321,12 +337,12 @@ function showTab(tab) {
     $("model-name").textContent = "";
     $("label-demo").hidden = true;
     $("label-mock").hidden = true;
-    resultsView.load();
+    resultViews[tab].view.load();
   }
 }
 
 function toggleTab() {
-  showTab(state.tab === "demo" ? "results" : "demo");
+  showTab(TABS[(TABS.indexOf(state.tab) + 1) % TABS.length]);
 }
 
 // Demo shortcuts do nothing while the results are on screen.
@@ -336,9 +352,10 @@ function demoOnly(action) {
   };
 }
 
+// Figure navigation acts on the results tab that is on screen.
 function resultsOnly(action) {
   return (...args) => {
-    if (state.tab === "results") action(...args);
+    if (resultViews[state.tab]) action(resultViews[state.tab].view, ...args);
   };
 }
 
@@ -407,6 +424,7 @@ bindButton("btn-switch-now", switchToReplay);
 bindButton("btn-stay", stayLive);
 bindButton("tab-demo", () => showTab("demo"));
 bindButton("tab-results", () => showTab("results"));
+bindButton("tab-sc", () => showTab("sc"));
 window.addEventListener("resize", () => columns.forEach((c) => c.afterLayout()));
 $("help").addEventListener("click", (e) => {
   if (e.target === $("help")) toggleHelp(false);
@@ -423,8 +441,8 @@ installShortcuts({
   switchNow: switchToReplay,
   stay: stayLive,
   tab: toggleTab,
-  prev: resultsOnly(() => resultsView.move(-1)),
-  next: resultsOnly(() => resultsView.move(1)),
+  prev: resultsOnly((view) => view.move(-1)),
+  next: resultsOnly((view) => view.move(1)),
   fullscreen: toggleFullscreen,
   help: () => toggleHelp(),
   closeHelp: () => toggleHelp(false),

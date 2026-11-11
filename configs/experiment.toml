@@ -37,3 +37,8 @@ keep = 3
 humaneval_breadth = 3
 humaneval_keep = 2
 game24_writer = "reached_24"
+
+# Self-consistency (separate study, Game of 24 only, never in the main results): `samples`
+# independent baseline calls (= ToT's call budget), answer by majority vote, no verifier.
+[approaches.self_consistency]
+samples = 29

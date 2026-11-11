@@ -37,6 +37,7 @@ from agentic.approaches.base import Approach
 from agentic.approaches.baseline import Baseline
 from agentic.approaches.multi_agent import MultiAgent
 from agentic.approaches.reflective import Reflective
+from agentic.approaches.self_consistency import SelfConsistency
 from agentic.approaches.tot import TreeOfThoughts
 from agentic.config import ROOT, load_toml, machine_id, model_name
 from agentic.events import FinalAnswer, LLMCall, RunEnd, RunStamp, RunStart
@@ -48,9 +49,12 @@ from agentic.tasks.game24 import Game24Task
 from agentic.tasks.humaneval import HumanEvalTask
 from agentic.traces import TraceWriter, group_runs, read_trace
 
-ORDER = ["baseline", "reflective", "multi_agent", "tot"]
+ORDER = ["baseline", "reflective", "multi_agent", "tot"]    # the main comparison ("all")
+# Separate studies: run only when named, never part of "all" or of the main results.
+SEPARATE = ["self_consistency"]
 APPROACHES: dict[str, Approach] = {"baseline": Baseline(), "reflective": Reflective(),
-                                   "multi_agent": MultiAgent(), "tot": TreeOfThoughts()}
+                                   "multi_agent": MultiAgent(), "tot": TreeOfThoughts(),
+                                   "self_consistency": SelfConsistency()}
 TASKS: dict[str, type] = {"game24": Game24Task, "humaneval": HumanEvalTask}
 TRACES_DIR = ROOT / "traces" / "runs"
 CSV_COLUMNS = ["run_id", "task", "approach", "item_id", "difficulty", "rep", "split", "correct",
@@ -243,12 +247,13 @@ def write_rows(csv_path: Path, rows: list[dict[str, Any]]) -> None:
 # ---- Command line ----
 
 def choose_approaches(spec: str) -> list[Approach]:
-    """Approaches to run, in the fixed ORDER."""
+    """Approaches to run, in the fixed ORDER (separate studies last). "all" is the main four."""
+    known = ORDER + SEPARATE
     names = ORDER if spec == "all" else [n.strip() for n in spec.split(",") if n.strip()]
-    unknown = [n for n in names if n not in ORDER]
+    unknown = [n for n in names if n not in known]
     if unknown:
-        raise SystemExit(f"Unknown approach {unknown}; choose from {ORDER} or 'all'")
-    return [APPROACHES[n] for n in ORDER if n in names]
+        raise SystemExit(f"Unknown approach {unknown}; choose from {known} or 'all'")
+    return [APPROACHES[n] for n in known if n in names]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -256,7 +261,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--task", required=True, choices=sorted(TASKS))
     parser.add_argument("--split", required=True, choices=["dev", "test"])
     parser.add_argument("--approach", default="all",
-                        help="'all' (default) or a comma list, e.g. baseline,tot")
+                        help="'all' (default, the main four) or a comma list, e.g. "
+                             "baseline,tot; self_consistency only when named")
     parser.add_argument("--reps", type=int, help="repetitions (default from experiment.toml)")
     parser.add_argument("--limit", type=int, help="only the first N items of the split")
     parser.add_argument("--tag", default="", help="suffix for a new experiment folder")
