@@ -38,6 +38,9 @@ REPORT_FILE = "report.md"
 # Figures in the order of the report; any other PNG follows by name.
 FIGURE_ORDER = ("success.png", "cumulative.png", "rep_spread.png", "paired.png",
                 "cost_vs_accuracy.png", "time_and_calls.png")
+# Separate studies: own subfolder of the results folder, own tab, never mixed with the main
+# results. Section name -> figure order.
+RESULT_SECTIONS = {"self_consistency": ("sc_success.png", "sc_k_curve.png")}
 RESULT_TYPES = {".png": "image/png", ".md": "text/markdown; charset=utf-8"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -95,12 +98,12 @@ async def _replay_source(path: Path, speed: float) -> AsyncIterator[dict[str, An
 
 # ---- Results ----
 
-def list_figures(results_dir: Path) -> list[str]:
+def list_figures(results_dir: Path, order: tuple[str, ...] = FIGURE_ORDER) -> list[str]:
     """PNG file names directly inside results_dir, report order first."""
     if not results_dir.is_dir():
         return []
     names = {p.name for p in results_dir.glob("*.png") if p.is_file() and SAFE_NAME.match(p.name)}
-    known = [n for n in FIGURE_ORDER if n in names]
+    known = [n for n in order if n in names]
     return known + sorted(names - set(known))
 
 
@@ -112,6 +115,13 @@ def result_file(results_dir: Path, name: str) -> Path | None:
     if not path.is_file() or path.resolve().parent != results_dir.resolve():
         return None
     return path
+
+
+def _result_response(path: Path | None) -> Response:
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path, media_type=RESULT_TYPES[path.suffix.lower()],
+                        headers={"Cache-Control": "no-cache"})
 
 
 # ---- App ----
@@ -188,11 +198,22 @@ def create_app(traces_dir: Path | None = None, results_dir: Path | None = None,
 
     @app.get("/results/{name}", include_in_schema=False)
     def result(name: str) -> Response:
-        path = result_file(results_dir, name)
-        if path is None:
-            raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(path, media_type=RESULT_TYPES[path.suffix.lower()],
-                            headers={"Cache-Control": "no-cache"})
+        return _result_response(result_file(results_dir, name))
+
+    def section_dir(section: str) -> Path:
+        if section not in RESULT_SECTIONS:
+            raise HTTPException(status_code=404, detail=f"Unknown results section {section!r}")
+        return results_dir / section
+
+    @app.get("/api/results/{section}")
+    def section_results(section: str) -> dict[str, Any]:
+        folder = section_dir(section)
+        return {"figures": list_figures(folder, RESULT_SECTIONS[section]),
+                "report": result_file(folder, REPORT_FILE) is not None}
+
+    @app.get("/results/{section}/{name}", include_in_schema=False)
+    def section_result(section: str, name: str) -> Response:
+        return _result_response(result_file(section_dir(section), name))
 
     return app
 

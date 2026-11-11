@@ -378,3 +378,29 @@ def test_results_refuses_other_files(results_client, name):
 ])
 def test_results_path_traversal_404(results_client, path):
     assert results_client.get(path).status_code == 404
+
+
+# ---- separate self-consistency results (own folder, own tab) ----
+
+def test_self_consistency_section_lists_and_serves_its_own_folder(results_client, results_dir):
+    sc = results_dir / "self_consistency"
+    sc.mkdir()
+    (sc / "sc_k_curve.png").write_bytes(PNG)
+    (sc / "sc_success.png").write_bytes(PNG)
+    (sc / "report.md").write_text("# Self-consistency\n", encoding="utf-8")
+
+    listing = results_client.get("/api/results/self_consistency").json()
+    assert listing == {"figures": ["sc_success.png", "sc_k_curve.png"], "report": True}
+    assert results_client.get("/results/self_consistency/sc_success.png").content == PNG
+    assert "Self-consistency" in results_client.get("/results/self_consistency/report.md").text
+    # The main section does not show the separate study's files, and vice versa.
+    assert "sc_success.png" not in results_client.get("/api/results").json()["figures"]
+    assert results_client.get("/results/self_consistency/success.png").status_code == 404
+
+
+def test_self_consistency_section_empty_and_unknown_sections(results_client):
+    assert results_client.get("/api/results/self_consistency").json() == {"figures": [],
+                                                                         "report": False}
+    assert results_client.get("/api/results/secret").status_code == 404
+    assert results_client.get("/results/secret/success.png").status_code == 404
+    assert results_client.get("/results/self_consistency/..%2Fsuccess.png").status_code == 404

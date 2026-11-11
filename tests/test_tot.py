@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from agentic.approaches.tot import TreeOfThoughts, load_prompt, parse_label, parse_steps
+from agentic.approaches.tot import (
+    TreeOfThoughts,
+    load_prompt,
+    parse_label,
+    parse_steps,
+    reached_24,
+)
 from agentic.events import (
     FinalAnswer,
     LLMCall,
@@ -41,7 +47,7 @@ PROPOSALS = {
 }
 VALUES = {"4 4 10": "(10 - 4) * 4 = 24\nsure", "6 9 13": "likely",
           "10 13 13": "too big\nimpossible", "4 6": "4 * 6 = 24\nsure", "8 10": "hmm",
-          "24": "sure", "18": "impossible"}
+          "24": "sure", "18": "impossible", "10": "impossible"}
 WRITER = "Answer: (13 - 9) * (10 - 4) = 24"
 
 
@@ -158,12 +164,55 @@ def test_search_builds_scores_prunes_and_writes():
     assert all(n.call_id in call_ids for n in added[1:])
 
 
-def test_no_readable_proposal_still_writes_an_answer():
+def test_no_readable_proposal_gives_no_answer():
     events = run_tot(ScriptedLLM(proposals={}))
     calls = of_type(events, LLMCall)
-    assert [c.role for c in calls] == ["proposer", "writer"]
-    assert of_type(events, PathChosen)[0].node_ids == ["root"]
-    assert isinstance(events[-1], FinalAnswer)
+    assert [c.role for c in calls] == ["proposer"]          # no writer: no path reached 24
+    chosen = of_type(events, PathChosen)[0]
+    assert chosen.node_ids == [] and chosen.answer == ""
+    assert isinstance(events[-1], FinalAnswer) and events[-1].answer == ""
+
+
+def test_writer_only_on_a_kept_leaf_that_reached_24():
+    # Both depth-3 leaves are kept; only the second one says "24" (wrong arithmetic, but ToT
+    # uses the model's own state as written). The writer gets that path, not the first leaf.
+    proposals = {**PROPOSALS, "4 6": "4 + 6 = 10 (left: 10)", "8 10": "8 + 10 = 24 (left: 24)"}
+    llm = ScriptedLLM(proposals=proposals)
+    events = run_tot(llm, {"breadth": 3, "keep": 2, "game24_writer": "reached_24"})
+    chosen = of_type(events, PathChosen)[0]
+    assert chosen.node_ids == ["root", "n1", "n5", "n7"]
+    assert of_type(events, LLMCall)[-1].role == "writer"
+    assert "8 + 10 = 24 (left: 24)" in llm.prompts[-1]
+
+
+def test_no_leaf_reached_24_gives_no_answer_and_no_writer():
+    proposals = {**PROPOSALS, "4 6": "4 + 6 = 10 (left: 10)", "8 10": "8 + 10 = 18 (left: 18)"}
+    events = run_tot(ScriptedLLM(proposals=proposals))
+    assert "writer" not in [c.role for c in of_type(events, LLMCall)]
+    assert of_type(events, PathChosen)[0].node_ids == []
+    assert events[-1].answer == ""
+    assert Game24Task().score(ITEM, events[-1].answer).correct is False
+
+
+def test_best_path_writer_keeps_the_preregistered_behaviour():
+    # The first test-set runs wrote an answer from the best path even when it missed 24.
+    proposals = {**PROPOSALS, "4 6": "4 + 6 = 10 (left: 10)", "8 10": "8 + 10 = 18 (left: 18)"}
+    llm = ScriptedLLM(proposals=proposals)
+    events = run_tot(llm, {"breadth": 3, "keep": 2, "game24_writer": "best_path"})
+    assert of_type(events, LLMCall)[-1].role == "writer"
+    assert of_type(events, PathChosen)[0].node_ids == ["root", "n1", "n4", "n6"]
+    assert events[-1].answer == "(13 - 9) * (10 - 4)"
+
+
+def test_unknown_writer_mode_is_rejected():
+    with pytest.raises(ValueError):
+        run_tot(ScriptedLLM(), {"game24_writer": "sometimes"})
+
+
+def test_reached_24_reads_the_state():
+    assert reached_24("24") and reached_24(" 24.0 ") and reached_24("48/2")
+    assert not reached_24("24 1") and not reached_24("18") and not reached_24("")
+    assert not reached_24("twenty") and not reached_24("1/0")
 
 
 def test_unknown_task_not_built():

@@ -191,8 +191,9 @@ export class Column {
       card.append(el("div", "answer-label", "Final answer"), this.answer);
       this.final.prepend(card);
     }
-    this.answer.textContent = text;
+    this.answer.textContent = text || "(no answer)";
     this.answer.classList.toggle("code", String(text).includes("\n"));
+    this.answer.classList.toggle("muted", !text);
   }
 
   // After the page layout changed (summary strip shown): keep the end of the column visible.

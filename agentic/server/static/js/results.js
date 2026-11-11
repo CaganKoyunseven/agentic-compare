@@ -1,12 +1,15 @@
 // Results view: the report figures one by one, large, and the report text.
+// section: null for the main results, or a separate study (its own subfolder, its own tab).
 
 import { clear, el } from "./dom.js";
 
 const FAKE_MARK = "FAKE DATA, NOT A RESULT";
 
 export class ResultsView {
-  constructor(root, { onFake, onError }) {
+  constructor(root, { onFake, onError, section = null, emptyText = "No results yet" }) {
     this.root = root;
+    this.api = section ? `/api/results/${section}` : "/api/results";
+    this.files = section ? `/results/${section}/` : "/results/";
     this.onFake = onFake;
     this.onError = onError;
     this.figures = [];
@@ -15,7 +18,7 @@ export class ResultsView {
     this.root.append(
       this.figureBox = el("div", "results-figure"),
       this.report = el("pre", "results-report"),
-      this.empty = el("p", "results-empty", "No results yet"),
+      this.empty = el("p", "results-empty", emptyText),
     );
     const nav = el("div", "figure-nav");
     this.prevButton = el("button", "", "←");
@@ -42,7 +45,7 @@ export class ResultsView {
     this.stamp = Date.now();
     let listing;
     try {
-      const response = await fetch("/api/results");
+      const response = await fetch(this.api);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       listing = await response.json();
     } catch (err) {
@@ -54,7 +57,7 @@ export class ResultsView {
     let text = "";
     if (listing.report) {
       try {
-        const response = await fetch(`/results/report.md?v=${this.stamp}`);
+        const response = await fetch(`${this.files}report.md?v=${this.stamp}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         text = await response.text();
       } catch (err) {
@@ -77,7 +80,7 @@ export class ResultsView {
       return;
     }
     const name = this.figures[this.index];
-    this.image.src = `/results/${encodeURIComponent(name)}?v=${this.stamp}`;
+    this.image.src = `${this.files}${encodeURIComponent(name)}?v=${this.stamp}`;
     this.image.alt = name;
     this.caption.textContent = `${this.index + 1} / ${this.figures.length}  ·  ${name}`;
     this.prevButton.disabled = this.index === 0;

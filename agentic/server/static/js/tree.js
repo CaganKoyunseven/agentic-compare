@@ -73,6 +73,12 @@ export class TreeView {
       node.pruned = true;
     } else if (ev.type === "path_chosen") {
       this.chosen = new Set(ev.node_ids);
+      if (ev.node_ids.length === 0) {
+        // No kept leaf reached 24: ToT gives no answer (nothing turns green).
+        const note = el("div", "badge fail");
+        note.append(el("span", "badge-mark", "✗"), el("span", "badge-text", "No path reached 24"));
+        this.badges.append(note);
+      }
     } else if (ev.type === "test_result") {
       this.badges.append(testBadge(ev, this.nodeName(ev.node_id)));
       return;

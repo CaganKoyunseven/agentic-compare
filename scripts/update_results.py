@@ -10,6 +10,8 @@ The runner calls this automatically after a test-split experiment. Steps:
      approaches and reps.
   4. Write results/runs.csv, results/validation.md (what was left out and why), and the
      figures plus report.md (scripts.make_report).
+  5. Separate studies (self-consistency) never enter steps 2-4: their runs are skipped here
+     and get their own folder, results/self_consistency/ (agentic.analysis.self_consistency).
 """
 
 import argparse
@@ -19,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agentic.analysis import stats
+from agentic.analysis.self_consistency import update_self_consistency
 from agentic.analysis.validate import (
     Exclusion,
     Expected,
@@ -28,12 +31,13 @@ from agentic.analysis.validate import (
 )
 from agentic.config import ROOT, load_toml, model_name
 from agentic.events import RunStart
-from agentic.runner import ORDER, TASKS, TRACES_DIR, write_rows
+from agentic.runner import ORDER, SEPARATE, TASKS, TRACES_DIR, write_rows
 from agentic.traces import group_runs, read_trace
 from scripts.make_report import make_report
 
 RESULTS_DIR = ROOT / "results"
 SPLIT = "test"
+SUPERSEDED_REASON = "settings differ from configs/experiment.toml"
 
 
 def expected_setup(model: str) -> Expected:
@@ -78,12 +82,15 @@ def collect(runs_dir: Path, expected: Expected):
         if reason:
             not_used.append((source, reason))
             continue
+        runs = [r for r in group_runs(records).values() if r[0][0].approach not in SEPARATE]
+        if not runs:
+            not_used.append((source, "separate study (see self_consistency/)"))
+            continue
         task_name = first[0].task
         if task_name not in split_items:
             task = TASKS[task_name]()
             split_items[task_name] = (task, task.load_items(expected.split))
         task, items = split_items[task_name]
-        runs = list(group_runs(records).values())
         ok_rows, bad = validate_runs(runs, task, items, expected, source)
         rows += ok_rows
         excluded += bad
@@ -125,12 +132,26 @@ def validation_markdown(expected: Expected, used, not_used, excluded: list[Exclu
               "|---|---|---|---|"]
     lines += [f"| {s} | {t} | {n} | {ok} |" for s, t, n, ok in used] or ["| (none) | | | |"]
 
+    # Runs made with earlier settings (for example ToT before the writer fix) are expected to
+    # be left out; they get one line per task and approach instead of one line per run.
+    superseded: dict[tuple[str, str], int] = {}
+    others = []
+    for e in excluded:
+        if e.reason.startswith(SUPERSEDED_REASON):
+            superseded[(e.task, e.approach)] = superseded.get((e.task, e.approach), 0) + 1
+        else:
+            others.append(e)
     lines += ["", "## Runs left out", ""]
-    if excluded:
+    if superseded:
+        lines += ["| Task | Approach | Runs | Reason |", "|---|---|---|---|"]
+        lines += [f"| {task} | {approach} | {n} | earlier settings (superseded by "
+                  "configs/experiment.toml) |" for (task, approach), n in sorted(superseded.items())]
+        lines.append("")
+    if others:
         lines += ["| Experiment | Approach | Item | Rep | Run | Reason |", "|---|---|---|---|---|---|"]
         lines += [f"| {e.source} | {e.approach} | {e.item_id} | {e.rep} | {e.run_id} | {e.reason} |"
-                  for e in excluded]
-    else:
+                  for e in others]
+    elif not superseded:
         lines.append("None.")
 
     lines += ["", "## Items dropped from all approaches", ""]
@@ -155,8 +176,18 @@ def validation_markdown(expected: Expected, used, not_used, excluded: list[Exclu
 
 def update_results(runs_dir: Path = TRACES_DIR, out_dir: Path = RESULTS_DIR,
                    model: str | None = None, log=print) -> int:
-    """Rebuild out_dir from the traces. Returns the number of runs in the results."""
-    expected = expected_setup(model or model_name())
+    """Rebuild out_dir from the traces, then the separate self-consistency folder (it reads
+    the new runs.csv for Baseline and ToT). Returns the number of runs in the main results."""
+    model = model or model_name()
+    n = update_main(runs_dir, out_dir, model, log)
+    update_self_consistency(runs_dir, out_dir / "self_consistency", out_dir / "runs.csv",
+                            model, TASKS["game24"](), log)
+    return n
+
+
+def update_main(runs_dir: Path, out_dir: Path, model: str, log=print) -> int:
+    """Rebuild the main results in out_dir. Returns the number of runs in them."""
+    expected = expected_setup(model)
     rows, excluded, not_used, used = collect(runs_dir, expected)
     rows, duplicates = drop_duplicates(rows)
     rows, dropped = keep_complete_items(rows, expected.approaches, expected.reps)

@@ -29,8 +29,16 @@ max_rounds = 2
 # children, each child gets one LLM score, and the best `keep` of the level survive.
 # HumanEval: `humaneval_breadth` plans (one call each), each scored once; the best
 # `humaneval_keep` become code in score order until one passes the own tests.
+# game24_writer: "reached_24" writes an answer only from a kept leaf whose numbers left are 24
+# (as in the paper's code); "best_path" was used in the first test runs (see README).
 [approaches.tot]
 breadth = 3
 keep = 3
 humaneval_breadth = 3
 humaneval_keep = 2
+game24_writer = "reached_24"
+
+# Self-consistency (separate study, Game of 24 only, never in the main results): `samples`
+# independent baseline calls (= ToT's call budget), answer by majority vote, no verifier.
+[approaches.self_consistency]
+samples = 29

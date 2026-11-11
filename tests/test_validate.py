@@ -182,3 +182,16 @@ def test_runner_update_failure_does_not_crash(monkeypatch, capsys):
     monkeypatch.setattr(ur, "update_results", broken)
     update_results_after_run()
     assert "Results not updated (RuntimeError: disk full)" in capsys.readouterr().out
+
+
+def test_runs_with_earlier_settings_are_one_line_per_approach_in_the_notes():
+    old = [ur.Exclusion("exp", "game24", "tot", f"game24/{i:04d}", 0, f"tot-{i}",
+                        "settings differ from configs/experiment.toml (config_hash a, "
+                        "expected b)") for i in range(3)]
+    other = ur.Exclusion("exp", "game24", "baseline", "game24/0001", 1, "b-1",
+                         "the run ended with status error")
+    notes = ur.validation_markdown(expected(), [], [], old + [other], [], [])
+    assert "- Runs left out: 4" in notes
+    assert "| game24 | tot | 3 | earlier settings (superseded" in notes
+    assert "tot-1" not in notes                       # not listed one by one
+    assert "| exp | baseline | game24/0001 | 1 | b-1 | the run ended with status error |" in notes
