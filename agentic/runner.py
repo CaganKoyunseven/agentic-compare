@@ -14,6 +14,10 @@ and runs.csv next to it (one row per finished run, contract 6.3) is derived from
 Resumable: running the same command again skips every (approach, item, rep) that already
 ended with status "ok". Ctrl-C ends the current run as "cancelled" and stops. If the settings
 of an approach changed since the earlier runs, the runner refuses to mix them; use --tag.
+
+After a test-split experiment finishes, all traces are validated and results/ (runs.csv,
+validation.md, figures, report.md) is rebuilt from the runs that pass; see
+scripts/update_results.py. --no-update skips this.
 """
 
 import argparse
@@ -212,19 +216,28 @@ def write_csv(trace_path: Path, csv_path: Path) -> int:
         if start.mode != "benchmark":
             continue
         # A later run of the same (model, approach, item, rep) replaces an earlier one.
-        rows[(env.model, env.approach, env.item_id, env.rep)] = {
-            "run_id": env.run_id, "task": env.task, "approach": env.approach,
-            "item_id": env.item_id, "difficulty": start.difficulty or "", "rep": env.rep,
-            "split": start.split, "correct": int(bool(end.correct)),
-            "tokens_in": end.tokens_in, "tokens_out": end.tokens_out,
-            "llm_calls": end.llm_calls, "wall_ms": end.wall_ms, "model": env.model,
-            "machine_id": env.machine_id,
-        }
+        rows[(env.model, env.approach, env.item_id, env.rep)] = csv_row(env, start, end)
+    write_rows(csv_path, list(rows.values()))
+    return len(rows)
+
+
+def csv_row(env, start: RunStart, end: RunEnd) -> dict[str, Any]:
+    """One results row (contract 6.3) from a run's envelope, run_start and run_end."""
+    return {
+        "run_id": env.run_id, "task": env.task, "approach": env.approach,
+        "item_id": env.item_id, "difficulty": start.difficulty or "", "rep": env.rep,
+        "split": start.split, "correct": int(bool(end.correct)),
+        "tokens_in": end.tokens_in, "tokens_out": end.tokens_out,
+        "llm_calls": end.llm_calls, "wall_ms": end.wall_ms, "model": env.model,
+        "machine_id": env.machine_id,
+    }
+
+
+def write_rows(csv_path: Path, rows: list[dict[str, Any]]) -> None:
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
         writer.writeheader()
-        writer.writerows(rows.values())
-    return len(rows)
+        writer.writerows(rows)
 
 
 # ---- Command line ----
@@ -247,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reps", type=int, help="repetitions (default from experiment.toml)")
     parser.add_argument("--limit", type=int, help="only the first N items of the split")
     parser.add_argument("--tag", default="", help="suffix for a new experiment folder")
+    parser.add_argument("--no-update", action="store_true",
+                        help="do not validate and rebuild results/ after a test-split run")
     args = parser.parse_args(argv)
 
     settings = load_toml("experiment")
@@ -275,7 +290,20 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     finally:
         llm.close()
+    if args.split == "test" and not args.no_update:
+        update_results_after_run()
     return 0
+
+
+def update_results_after_run() -> None:
+    """Validate all traces and rebuild results/. A failure here never undoes the runs."""
+    # Late import: scripts.update_results imports this module.
+    from scripts.update_results import update_results
+    try:
+        update_results()
+    except Exception as exc:  # noqa: BLE001 - any failure: the traces are safe, rebuild by hand
+        print(f"Results not updated ({type(exc).__name__}: {exc}). "
+              "Run python -m scripts.update_results to retry.")
 
 
 if __name__ == "__main__":
