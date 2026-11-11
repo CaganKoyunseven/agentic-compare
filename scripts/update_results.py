@@ -37,6 +37,7 @@ from scripts.make_report import make_report
 
 RESULTS_DIR = ROOT / "results"
 SPLIT = "test"
+SUPERSEDED_REASON = "settings differ from configs/experiment.toml"
 
 
 def expected_setup(model: str) -> Expected:
@@ -131,12 +132,26 @@ def validation_markdown(expected: Expected, used, not_used, excluded: list[Exclu
               "|---|---|---|---|"]
     lines += [f"| {s} | {t} | {n} | {ok} |" for s, t, n, ok in used] or ["| (none) | | | |"]
 
+    # Runs made with earlier settings (for example ToT before the writer fix) are expected to
+    # be left out; they get one line per task and approach instead of one line per run.
+    superseded: dict[tuple[str, str], int] = {}
+    others = []
+    for e in excluded:
+        if e.reason.startswith(SUPERSEDED_REASON):
+            superseded[(e.task, e.approach)] = superseded.get((e.task, e.approach), 0) + 1
+        else:
+            others.append(e)
     lines += ["", "## Runs left out", ""]
-    if excluded:
+    if superseded:
+        lines += ["| Task | Approach | Runs | Reason |", "|---|---|---|---|"]
+        lines += [f"| {task} | {approach} | {n} | earlier settings (superseded by "
+                  "configs/experiment.toml) |" for (task, approach), n in sorted(superseded.items())]
+        lines.append("")
+    if others:
         lines += ["| Experiment | Approach | Item | Rep | Run | Reason |", "|---|---|---|---|---|---|"]
         lines += [f"| {e.source} | {e.approach} | {e.item_id} | {e.rep} | {e.run_id} | {e.reason} |"
-                  for e in excluded]
-    else:
+                  for e in others]
+    elif not superseded:
         lines.append("None.")
 
     lines += ["", "## Items dropped from all approaches", ""]
