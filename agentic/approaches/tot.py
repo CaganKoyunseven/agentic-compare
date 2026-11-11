@@ -6,8 +6,13 @@ Game of 24, following the ToT paper (Yao et al., 2023):
   2. Scorer: one call per child judges whether the numbers left can still reach 24
      (sure / likely / impossible).
   3. All children of the level are ranked by score and only the best `keep` survive.
-  Three levels (four numbers, three steps). Then a writer call turns the steps of the best
-  node into one expression, which becomes the final answer.
+  Three levels (four numbers, three steps). Then a writer call turns the steps of one path
+  into one expression, which becomes the final answer. Which path, set by `game24_writer`:
+  - "reached_24" (as in the paper's code): the best-scored kept leaf whose numbers left are
+    exactly 24. When no kept leaf reached 24 there is no writer call and no answer (wrong).
+  - "best_path" (our first, pre-registered test runs): the best node, even when its numbers
+    left are not 24; the writer then often wrote a new answer that ignored the tree.
+  The paper also lets the model judge the written answers; we do not (one writer call).
 
 Pure ToT: the model's own steps and "left" numbers are used as written. Code only reads the
 format; it never checks the arithmetic and never feeds the verifier result back.
@@ -26,6 +31,7 @@ HumanEval, two levels (plans, then code):
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any
 
 from agentic.approaches.base import Caller, load_prompt
@@ -42,10 +48,12 @@ from agentic.events import (
 )
 from agentic.llm.base import LLMClient
 from agentic.tasks.base import Item, Task
-from agentic.tasks.game24 import normalize
+from agentic.tasks.game24 import TARGET, normalize
 
 SCORE_OF_LABEL = {"sure": 1.0, "likely": 0.5, "impossible": 0.0}
-DEFAULTS = {"breadth": 3, "keep": 3, "humaneval_breadth": 3, "humaneval_keep": 2}
+DEFAULTS = {"breadth": 3, "keep": 3, "humaneval_breadth": 3, "humaneval_keep": 2,
+            "game24_writer": "reached_24"}
+WRITER_MODES = ("reached_24", "best_path")
 
 # "4 + 8 = 12 (left: 6 12)" -> step "4 + 8 = 12", state "6 12"
 _STEP = re.compile(r"^\s*(?:[-*]\s*|\d+[.)]\s+)?(.+?=\s*[^\s(]+)\s*\(\s*left:\s*([^)]*)\)",
@@ -74,6 +82,17 @@ def parse_steps(text: str, limit: int) -> list[tuple[str, str]]:
         if len(steps) == limit:
             break
     return steps
+
+
+def reached_24(state: str) -> bool:
+    """True when the numbers left, as the model wrote them, are the single number 24."""
+    parts = state.split()
+    if len(parts) != 1:
+        return False
+    try:
+        return Fraction(parts[0]) == TARGET
+    except (ValueError, ZeroDivisionError):
+        return False
 
 
 def parse_label(text: str) -> str:
@@ -117,13 +136,17 @@ class TreeOfThoughts:
     def _game24(self, item: Item, task: Task, caller: Caller,
                 settings: dict[str, Any]) -> Iterator[Body]:
         numbers = " ".join(str(n) for n in item.payload["numbers"])
+        writer = settings["game24_writer"]
+        if writer not in WRITER_MODES:
+            raise ValueError(f"game24_writer must be one of {WRITER_MODES}, not {writer!r}")
+        last_depth = len(item.payload["numbers"]) - 1
 
         root = Node("root", None, 0, "", numbers)
         yield NodeAdded(node_id="root", parent_id=None, depth=0, step="", state=numbers)
         frontier = [root]
         best = root
         made = 0   # nodes created so far, for the ids n1, n2, ...
-        for depth in range(1, len(item.payload["numbers"])):
+        for depth in range(1, last_depth + 1):
             children: list[Node] = []
             for parent in frontier:
                 call = caller.chat("proposer", _user(load_prompt("game24_tot_propose")
@@ -150,6 +173,15 @@ class TreeOfThoughts:
                 yield NodePruned(node_id=node.node_id)
             frontier = ranked[:settings["keep"]]
             best = frontier[0]
+
+        if writer == "reached_24":
+            # frontier is in score order, so the first leaf at 24 is the best-scored one.
+            done = [n for n in frontier if n.depth == last_depth and reached_24(n.state)]
+            if not done:
+                yield PathChosen(node_ids=[], answer="")
+                yield FinalAnswer(answer="")
+                return
+            best = done[0]
 
         path = best.path()
         steps = "\n".join(f"{n.step} (left: {n.state})" for n in path[1:])

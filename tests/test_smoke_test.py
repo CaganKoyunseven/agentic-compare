@@ -53,7 +53,8 @@ def test_summary_of_a_baseline_and_tot_run(tmp_path):
     stats, tree, pairs = summarize(path)
     assert (stats["baseline"].runs, stats["baseline"].correct, stats["baseline"].calls) == (2, 1, 2)
     # ToT per item: one child per level -> 3 x (1 propose + 1 score) + 1 writer = 7 calls.
-    assert (stats["tot"].runs, stats["tot"].correct, stats["tot"].calls) == (2, 1, 14)
+    # No path reaches "24" (every state is "4 4 10"), so ToT writes no answer: 6 calls a run.
+    assert (stats["tot"].runs, stats["tot"].correct, stats["tot"].calls) == (2, 0, 12)
     assert pairs == {("game24/0001", 0), ("game24/0002", 0)}
     # Item 1: only the first step fits its parent. Item 2: no step fits.
     assert (tree.steps, tree.valid_steps) == (6, 1)
@@ -61,5 +62,5 @@ def test_summary_of_a_baseline_and_tot_run(tmp_path):
     assert (tree.sure, tree.sure_reachable) == (6, 6)
 
     text = report(path)
-    assert "both 1, only baseline 0, only ToT 0, neither 1" in text
+    assert "both 0, only baseline 1, only ToT 0, neither 1" in text
     assert "valid steps: 1 / 6 (17%)" in text
