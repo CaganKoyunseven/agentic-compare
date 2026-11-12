@@ -10,9 +10,11 @@ read anything outside the box:
 Output is read while the child runs and only a bounded tail is kept, so a child that prints in an
 endless loop can neither fill the parent's memory nor stretch the timeout.
 
-bubblewrap exists only on Linux. Elsewhere (or when bwrap is missing or not allowed to create
-namespaces) run_python raises SandboxUnavailable instead of running the code unprotected. On
-Windows, use WSL.
+bubblewrap exists only on Linux. Without it (Windows, macOS, or bwrap missing) run_python
+raises SandboxUnavailable, unless AGENTIC_ALLOW_BASIC_SANDBOX=1 is set. Then the code runs with
+the basic sandbox instead: a separate process with a timeout, a temporary working folder and an
+environment without keys and tokens, but with no network, file or memory isolation. Only set it
+for code you trust (the test suite sets it: tests run only our own fixed code).
 """
 
 import functools
@@ -38,8 +40,14 @@ FILE_BYTES = 16 * 1024 * 1024        # largest file the child may write
 MAX_PROCESSES = 64                   # counted inside the box only (own user namespace)
 MAX_OPEN_FILES = 256
 
+ALLOW_BASIC_ENV = "AGENTIC_ALLOW_BASIC_SANDBOX"
 UNAVAILABLE_HELP = ("Running model-written code needs Linux with bubblewrap (bwrap) installed "
-                    "and allowed to create user namespaces. On Windows, use WSL.")
+                    "and allowed to create user namespaces. On Windows, use WSL. To run it with "
+                    f"the weaker basic sandbox anyway, set {ALLOW_BASIC_ENV}=1.")
+BASIC_WARNING = ("Warning: bubblewrap is not available ({reason}). Model-written code runs in the "
+                 "basic sandbox: no network, file or memory isolation.")
+SECRET_PARTS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+_warned = False
 
 
 class SandboxUnavailable(RuntimeError):
@@ -165,7 +173,8 @@ def _availability() -> str:
         script.write_text("print('ok')\n", encoding="utf-8")
         try:
             probe = subprocess.run(_bwrap_command(script, 5.0), check=False,
-                                   capture_output=True, text=True, timeout=10, env={"PATH": "/usr/bin:/bin"})
+                                   capture_output=True, text=True, timeout=10,
+                                   env={"PATH": "/usr/bin:/bin"})
         except (OSError, subprocess.SubprocessError) as exc:
             return f"bwrap could not start ({exc})"
     if probe.returncode != 0 or probe.stdout != "ok\n":
@@ -173,15 +182,46 @@ def _availability() -> str:
     return ""
 
 
-def check_available() -> None:
-    """Raise SandboxUnavailable if model-written code cannot be run safely here."""
+def sandbox_mode() -> str:
+    """"bubblewrap" (full box), "basic" (allowed by AGENTIC_ALLOW_BASIC_SANDBOX=1), or raise
+    SandboxUnavailable when model-written code may not run here."""
     reason = _availability()
-    if reason:
-        raise SandboxUnavailable(f"{UNAVAILABLE_HELP} ({reason})")
+    if not reason:
+        return "bubblewrap"
+    if os.environ.get(ALLOW_BASIC_ENV) == "1":
+        return "basic"
+    raise SandboxUnavailable(f"{UNAVAILABLE_HELP} ({reason})")
+
+
+def _basic_command(script: Path) -> tuple[list[str], dict[str, str], dict]:
+    """Command, environment and Popen options of the basic sandbox (any system)."""
+    global _warned
+    if not _warned:
+        print(BASIC_WARNING.format(reason=_availability()), file=sys.stderr)
+        _warned = True
+    env = {k: v for k, v in os.environ.items()
+           if not any(part in k.upper() for part in SECRET_PARTS)}
+    if sys.platform == "win32":
+        options = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    else:
+        options = {"start_new_session": True}
+    # -I ignores PYTHON* environment variables, so UTF-8 mode is set with -X utf8 instead.
+    return [sys.executable, "-I", "-X", "utf8", str(script)], env, options
+
+
+def _kill(process: subprocess.Popen) -> None:
+    """Kill the child and, where possible, its whole process group."""
+    if sys.platform == "win32":     # only the main process; grandchildren may survive
+        process.kill()
+        return
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except ProcessLookupError:
+        process.kill()
 
 
 def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 4000) -> SandboxResult:
-    check_available()
+    mode = sandbox_mode()
     timed_out = False
     start_time = time.perf_counter()
 
@@ -189,15 +229,20 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
         script_path = Path(tmpdir) / "main.py"
         script_path.write_text(code, encoding="utf-8")
 
+        if mode == "bubblewrap":
+            cmd, env = _bwrap_command(script_path, timeout_s), {"PATH": "/usr/bin:/bin"}
+            options = {"start_new_session": True}
+        else:
+            cmd, env, options = _basic_command(script_path)
         try:
             process = subprocess.Popen(
-                _bwrap_command(script_path, timeout_s),
+                cmd,
                 cwd=tmpdir,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                env={"PATH": "/usr/bin:/bin"},
-                start_new_session=True,
+                env=env,
+                **options,
             )
         except (OSError, ValueError) as e:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -220,11 +265,7 @@ def run_python(code: str, *, timeout_s: float = 5.0, max_output_chars: int = 400
             returncode = process.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            # Killing bwrap ends the box: --die-with-parent kills its process tree.
-            try:
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            except ProcessLookupError:
-                process.kill()
+            _kill(process)       # killing bwrap ends the box (--die-with-parent)
             returncode = process.wait()
 
         deadline = time.perf_counter() + READER_GRACE_S    # one shared grace period

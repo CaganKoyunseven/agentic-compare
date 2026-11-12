@@ -4,7 +4,6 @@ import csv
 
 import pytest
 
-from agentic import sandbox
 from agentic.approaches.base import Caller
 from agentic.approaches.baseline import Baseline
 from agentic.events import FinalAnswer, LLMCall, RunEnd, RunStart
@@ -174,7 +173,6 @@ def test_humaneval_data_and_splits():
     assert [i.item_id for i in task.load_items("test")] == [i.item_id for i in test]
 
 
-@pytest.mark.skipif(bool(sandbox._availability()), reason="bubblewrap sandbox not available")
 def test_runner_scores_humaneval_with_official_tests(tmp_path):
     """Baseline on the first real dev item: a wrong body fails the official tests, the
     canonical solution passes them, and runs.csv gets the rows."""
