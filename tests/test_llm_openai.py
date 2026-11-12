@@ -174,3 +174,22 @@ def test_unknown_backend_is_rejected(monkeypatch):
     monkeypatch.setenv("LLM_BACKEND", "other")
     with pytest.raises(ValueError, match="LLM_BACKEND"):
         make_client("fake-mini")
+
+
+def test_sample_asks_for_n_choices_in_one_request():
+    seen = []
+    reply = {**REPLY, "choices": [
+        {"message": {"content": "sure"}, "finish_reason": "stop"},
+        {"message": {"content": "likely"}, "finish_reason": "length"},
+        {"message": {"content": "sure"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 35, "completion_tokens": 9}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=reply)
+
+    result = client_with(handler).sample(MESSAGES, seed=7, n=3)
+    assert len(seen) == 1 and seen[0]["n"] == 3 and seen[0]["seed"] == 7
+    assert result.texts == ("sure", "likely", "sure") and result.text == "sure"
+    assert (result.tokens_in, result.tokens_out) == (35, 9)    # prompt paid once
+    assert result.done_reason == "length"                      # any cut choice is reported

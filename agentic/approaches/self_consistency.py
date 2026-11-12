@@ -1,7 +1,7 @@
 """Self-consistency (Wang et al., 2023), Game of 24 only.
 
-A control for Tree of Thoughts: the same number of LLM calls (`samples`, 29 = ToT's budget on
-Game of 24), but no search and no scoring. Each call is the baseline prompt on its own, with
+A control for Tree of Thoughts: many LLM calls (`samples`, 29 = the call budget of our first,
+lighter ToT on Game of 24), but no search and no scoring. Each call is the baseline prompt on its own, with
 its own seed. The final answer is chosen by majority vote over the answers, compared after
 light normalisation (spaces and extra parentheses do not matter, and the operands of + and *
 may come in any order). No verifier is used: the vote only counts what the model said most.
