@@ -198,10 +198,11 @@ def report_markdown(errors: dict, tot: dict) -> str:
     if root.get("calls"):
         lines += ["", "### More proposals at the root (exploratory)", "",
                   (f"Root proposer calls with at least one sound step among the lines used "
-                   f"(the first `breadth`): {root['sound_in_first']} of {root['calls']} "
-                   f"({_pct(root['sound_in_first'], root['calls'])}); among all lines the model "
-                   f"wrote: {root['sound_in_all']} ({_pct(root['sound_in_all'], root['calls'])}). "
-                   "The paper's code keeps every proposed line; ours keeps the first `breadth`.")]
+                   f"(the first `breadth`, or all with `breadth = 0`): {root['sound_in_first']} "
+                   f"of {root['calls']} ({_pct(root['sound_in_first'], root['calls'])}); among "
+                   f"all lines the model wrote: {root['sound_in_all']} "
+                   f"({_pct(root['sound_in_all'], root['calls'])}). The paper's code uses every "
+                   "proposed line, as `breadth = 0` does; the first test run used `breadth = 3`.")]
     lines += ["", f"![{FIGURE}]({FIGURE})"]
     return "\n".join(lines) + "\n"
 
