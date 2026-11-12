@@ -1,7 +1,8 @@
 // Tree-of-Thoughts view: a d3 tree that grows as node events arrive.
 // Depth runs left to right; each node has its step above and its state below the dot, so the
 // levels can sit close together. The tree is scaled to fit the column (never above 1:1).
-// Pruned nodes turn grey and take less room; the chosen path turns green.
+// Pruned nodes turn grey and take less room; the chosen path turns green. Several pruned leaves
+// under one parent are shown as a single "+N pruned" node.
 // Text never shrinks below a size readable on a projector. When a tree is too large for that,
 // pruned nodes lose their text (it stays in the tooltip) and any label with no free space is
 // dropped, most important labels first, so labels never touch.
@@ -121,7 +122,18 @@ export class TreeView {
         children.get(n.parent).push(n);
       }
     }
-    return d3.hierarchy(rootNode, (n) => children.get(n.id) || []);
+    // A parent's pruned children with no children of their own are drawn as one grey
+    // "+N pruned" node (their steps are in its tooltip), so a search that keeps every proposed
+    // line still fits the column with readable text.
+    const shown = (n) => {
+      const kids = children.get(n.id) || [];
+      const folded = kids.filter((k) => k.pruned && !children.has(k.id) && !this.chosen.has(k.id));
+      if (folded.length < 2) return kids;
+      const group = { id: `${n.id}#pruned`, parent: n.id, step: `+${folded.length} pruned`,
+        state: "", label: "", score: null, pruned: true, folded: folded.map((k) => k.step) };
+      return [...kids.filter((k) => !folded.includes(k)), group];
+    };
+    return d3.hierarchy(rootNode, shown);
   }
 
   // Lay the nodes out, then work out the zoom that fits them in the column.
@@ -167,7 +179,7 @@ export class TreeView {
     const root = this.hierarchy();
     if (!root) return;
     const isChosen = (d) => this.chosen.has(d.data.id);
-    const hasText = (d) => isChosen(d) || !d.data.pruned;
+    const hasText = (d) => isChosen(d) || !d.data.pruned || Boolean(d.data.folded);
 
     // Fit with the normal layout first; a tree that would need too small text is laid out compact.
     let fit = this.fit(root, hasText, false);
@@ -233,6 +245,7 @@ export class TreeView {
     });
     nodes.select("title").text((d) => {
       const n = d.data;
+      if (n.folded) return [`${n.folded.length} pruned steps:`, ...n.folded].join("\n");
       return [n.step || "start", n.state, n.label].filter(Boolean).join("\n");
     });
     nodes.select(".node-step").style("font-size", `${sizes.step}px`).text((d) => d.stepText);
