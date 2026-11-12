@@ -192,3 +192,29 @@ def test_runner_scores_humaneval_with_official_tests(tmp_path):
             [row] = list(csv.DictReader(f))
         assert (row["task"], row["item_id"], row["difficulty"]) == ("humaneval",
                                                                     item.item_id, "")
+
+
+class SampleLLM(FakeLLM):
+    """A client with its own sample(): n replies from one request."""
+
+    def sample(self, messages, *, seed=None, n=1):
+        self.seeds.append(seed)
+        return LLMResult(text="a", texts=tuple("abc"[:n]), tokens_in=20, tokens_out=3 * n,
+                         wall_ms=3, load_ms=0, model="fake", done_reason="stop")
+
+
+def test_caller_sample_uses_one_request_when_the_client_can():
+    llm = SampleLLM()
+    call = Caller(llm, seed=100).sample("scorer", [{"role": "user", "content": "x"}], n=3)
+    assert (call.response, call.responses, call.seed) == ("a", ["a", "b", "c"], 100)
+    assert (call.tokens_in, call.tokens_out) == (20, 9)
+
+
+def test_caller_sample_falls_back_to_n_calls_in_one_event():
+    llm = FakeLLM()
+    caller = Caller(llm, seed=100)
+    call = caller.sample("scorer", [{"role": "user", "content": "x"}], n=3)
+    assert llm.seeds == [100, 100_100, 200_100]
+    assert call.responses == [llm.reply] * 3 and call.response == llm.reply
+    assert (call.tokens_in, call.tokens_out, call.call_id) == (60, 21, "call-0")
+    assert caller.chat("solver", [{"role": "user", "content": "y"}]).seed == 101

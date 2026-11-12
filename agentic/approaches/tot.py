@@ -1,11 +1,17 @@
 """Tree of Thoughts (breadth-first search with LLM scoring).
 
-Game of 24, following the ToT paper (Yao et al., 2023):
+Game of 24, following the ToT paper (Yao et al., 2023) and its code
+(princeton-nlp/tree-of-thought-llm: scripts/game24/bfs.sh, src/tot/methods/bfs.py):
   1. Proposer: for every kept node, one call lists possible next steps such as
-     "4 + 8 = 12 (left: 6 12)". The first `breadth` lines that have this form become children.
-  2. Scorer: one call per child judges whether the numbers left can still reach 24
-     (sure / likely / impossible).
-  3. All children of the level are ranked by score and only the best `keep` survive.
+     "4 + 8 = 12 (left: 6 12)". Every line of this form becomes a child (`breadth` = 0, as in
+     the paper), or only the first `breadth` lines. A line repeated under the same parent is
+     skipped (the paper gives such duplicates the value 0).
+  2. Scorer: one call per child asks for `value_samples` judgements (3 in the paper, in one
+     request) of whether the numbers left can still reach 24. Like the paper, the labels are
+     weighted (sure 20, likely 1, impossible 0.001) and summed. A state already scored in this
+     run reuses its score without a new call (the paper caches values too).
+  3. All children of the level are ranked by score and only the best `keep` survive (5 in
+     the paper).
   Three levels (four numbers, three steps). Then a writer call turns the steps of one path
   into one expression, which becomes the final answer. Which path, set by `game24_writer`:
   - "reached_24" (as in the paper's code): the best-scored kept leaf whose numbers left are
@@ -50,9 +56,11 @@ from agentic.llm.base import LLMClient
 from agentic.tasks.base import Item, Task
 from agentic.tasks.game24 import TARGET, normalize
 
-SCORE_OF_LABEL = {"sure": 1.0, "likely": 0.5, "impossible": 0.0}
-DEFAULTS = {"breadth": 3, "keep": 3, "humaneval_breadth": 3, "humaneval_keep": 2,
-            "game24_writer": "reached_24"}
+SCORE_OF_LABEL = {"sure": 1.0, "likely": 0.5, "impossible": 0.0}      # HumanEval plans
+PAPER_VALUE = {"sure": 20.0, "likely": 1.0, "impossible": 0.001}       # Game of 24 states
+DEFAULTS = {"breadth": 0, "keep": 5, "value_samples": 3, "humaneval_breadth": 3,
+            "humaneval_keep": 2, "game24_writer": "reached_24"}
+ALL_LINES = 100        # breadth 0: no limit in practice (the model writes about 6 lines)
 WRITER_MODES = ("reached_24", "best_path")
 
 # "4 + 8 = 12 (left: 6 12)" -> step "4 + 8 = 12", state "6 12"
@@ -146,13 +154,19 @@ class TreeOfThoughts:
         frontier = [root]
         best = root
         made = 0   # nodes created so far, for the ids n1, n2, ...
+        limit = settings["breadth"] or ALL_LINES
+        cache: dict[str, tuple[float, str]] = {}     # state -> (score, label) in this run
         for depth in range(1, last_depth + 1):
             children: list[Node] = []
             for parent in frontier:
                 call = caller.chat("proposer", _user(load_prompt("game24_tot_propose")
                                                      .format(state=parent.state)))
                 yield call
-                for step, state in parse_steps(call.response, settings["breadth"]):
+                seen = set()
+                for step, state in parse_steps(call.response, limit):
+                    if (step, state) in seen:
+                        continue
+                    seen.add((step, state))
                     made += 1
                     child = Node(f"n{made}", parent, depth, step, state)
                     children.append(child)
@@ -161,11 +175,19 @@ class TreeOfThoughts:
             if not children:
                 break   # the model proposed nothing readable; keep the best node so far
             for child in children:
-                call = caller.chat("scorer", _user(load_prompt("game24_tot_value")
-                                                   .format(state=child.state)))
+                if child.state in cache:
+                    child.score, label = cache[child.state]
+                    yield NodeScored(node_id=child.node_id, score=child.score,
+                                     label=f"{label} (cached)")
+                    continue
+                call = caller.sample("scorer", _user(load_prompt("game24_tot_value")
+                                                     .format(state=child.state)),
+                                     settings["value_samples"])
                 yield call
-                label = parse_label(call.response)
-                child.score = SCORE_OF_LABEL.get(label, 0.0)
+                labels = [parse_label(text) for text in call.responses or [call.response]]
+                child.score = sum(PAPER_VALUE.get(lab, 0.0) for lab in labels)
+                label = ", ".join(labels)
+                cache[child.state] = (child.score, label)
                 yield NodeScored(node_id=child.node_id, score=child.score, label=label,
                                  call_id=call.call_id)
             ranked = sorted(children, key=lambda n: -n.score)   # stable: ties keep order

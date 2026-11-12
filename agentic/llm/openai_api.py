@@ -9,6 +9,7 @@ Only httpx is used, no extra package. The API key comes from .env and is never l
 import json
 import time
 from collections.abc import Callable
+from dataclasses import replace
 
 import httpx
 
@@ -59,6 +60,20 @@ class OpenAIClient:
         usage = data.get("usage") or {}
         return self._result(choice["message"].get("content") or "", usage,
                             choice.get("finish_reason"), data, start)
+
+    def sample(self, messages: list[dict[str, str]], *, seed: int | None = None,
+               n: int = 1) -> LLMResult:
+        """n replies to the same prompt from one request (the API's n parameter). The prompt
+        tokens are paid once; completion tokens cover all replies."""
+        start = time.perf_counter()
+        body = self._body(messages, seed, stream=False) | {"n": n}
+        data = self._post_with_retry(body)
+        choices = data["choices"]
+        texts = tuple(c["message"].get("content") or "" for c in choices)
+        reasons = [c.get("finish_reason") or "" for c in choices]
+        reason = "length" if "length" in reasons else reasons[0]
+        result = self._result(texts[0], data.get("usage") or {}, reason, data, start)
+        return replace(result, texts=texts)
 
     def chat_stream(self, messages: list[dict[str, str]], *, seed: int | None = None,
                     on_text: Callable[[str], None]) -> LLMResult:

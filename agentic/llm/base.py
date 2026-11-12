@@ -18,8 +18,11 @@ class LLMResult:
     model: str
     done_reason: str                  # "stop" or "length" (hit max tokens)
     system_fingerprint: str | None = None   # cloud API server configuration, None for Ollama
+    texts: tuple[str, ...] = ()       # all replies of a sample() request; text is the first
 
 
 class LLMClient(Protocol):
+    """A client may also have sample(messages, *, seed, n) -> LLMResult with n replies from
+    one request (OpenAI). Without it, Caller.sample makes n separate chat() calls."""
     model: str
     def chat(self, messages: list[dict[str, str]], *, seed: int | None = None) -> LLMResult: ...

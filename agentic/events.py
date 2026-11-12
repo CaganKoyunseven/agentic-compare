@@ -100,6 +100,7 @@ class LLMCall(_Strict):
     done_reason: str
     seed: int | None = None
     system_fingerprint: str | None = None
+    responses: list[str] | None = None   # all replies when one call asked for several (n > 1)
 
 
 class Token(_Strict):

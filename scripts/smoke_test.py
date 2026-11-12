@@ -105,12 +105,13 @@ def summarize(trace_path: Path) -> tuple[dict[str, ApproachStats], TreeStats, se
                     tree.steps += 1
                     tree.valid_steps += valid_step(nodes[body.parent_id].state, body.step,
                                                    body.state)
-            elif isinstance(body, NodeScored):
-                tree.labels[body.label] += 1
-                if body.label == "sure":
-                    tree.sure += 1
-                    values = parse_state(nodes[body.node_id].state)
-                    tree.sure_reachable += bool(values) and can_reach_24(values)
+            elif isinstance(body, NodeScored) and body.call_id is not None:  # not cached
+                for label in body.label.split(", "):        # one label per judgement
+                    tree.labels[label] += 1
+                    if label == "sure":
+                        tree.sure += 1
+                        values = parse_state(nodes[body.node_id].state)
+                        tree.sure_reachable += bool(values) and can_reach_24(values)
     return stats, tree, pairs
 
 

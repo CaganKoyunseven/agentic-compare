@@ -44,6 +44,7 @@ from agentic.events import FinalAnswer, LLMCall, RunEnd, RunStamp, RunStart
 from agentic.llm.backend import make_client
 from agentic.llm.base import LLMClient
 from agentic.llm.ollama import OllamaError
+from agentic.sandbox import SandboxUnavailable, sandbox_mode
 from agentic.tasks.base import Item, Task
 from agentic.tasks.game24 import Game24Task
 from agentic.tasks.humaneval import HumanEvalTask
@@ -273,6 +274,11 @@ def main(argv: list[str] | None = None) -> int:
     settings = load_toml("experiment")
     approaches = choose_approaches(args.approach)
     task = TASKS[args.task]()
+    if args.task == "humaneval":
+        try:
+            print(f"Sandbox for model-written code: {sandbox_mode()}")
+        except SandboxUnavailable as exc:       # stop before any model call
+            raise SystemExit(str(exc)) from None
     items = task.load_items(args.split)[:args.limit]
     model, machine = model_name(), machine_id()
     llm = make_client(model, **settings["llm"])

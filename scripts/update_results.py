@@ -9,7 +9,8 @@ The runner calls this automatically after a test-split experiment. Steps:
   3. Keep one run per (task, approach, item, rep) and only items that are complete for all
      approaches and reps.
   4. Write results/runs.csv, results/validation.md (what was left out and why), and the
-     figures plus report.md (scripts.make_report).
+     figures plus report.md (scripts.make_report), and the Game of 24 error and ToT search
+     analysis (scripts.analyze_game24).
   5. Separate studies (self-consistency) never enter steps 2-4: their runs are skipped here
      and get their own folder, results/self_consistency/ (agentic.analysis.self_consistency).
 """
@@ -33,6 +34,7 @@ from agentic.config import ROOT, load_toml, model_name
 from agentic.events import RunStart
 from agentic.runner import ORDER, SEPARATE, TASKS, TRACES_DIR, write_rows
 from agentic.traces import group_runs, read_trace
+from scripts.analyze_game24 import write_analysis
 from scripts.make_report import make_report
 
 RESULTS_DIR = ROOT / "results"
@@ -212,6 +214,8 @@ def update_main(runs_dir: Path, out_dir: Path, model: str, log=print) -> int:
         f.write(f"\n\nOnly runs that passed the checks are included: see `validation.md` "
                 f"({len(excluded)} runs left out, {len(dropped)} items dropped).\n")
     log(f"{report} and figures updated")
+    if any(r["task"] == "game24" for r in rows):
+        log(f"{write_analysis(runs_dir, csv_path, out_dir)} updated")
     return len(rows)
 
 

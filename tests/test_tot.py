@@ -47,7 +47,7 @@ PROPOSALS = {
 }
 VALUES = {"4 4 10": "(10 - 4) * 4 = 24\nsure", "6 9 13": "likely",
           "10 13 13": "too big\nimpossible", "4 6": "4 * 6 = 24\nsure", "8 10": "hmm",
-          "24": "sure", "18": "impossible", "10": "impossible"}
+          "24": "sure", "18": "impossible", "10": "impossible", "4 13 90": "impossible"}
 WRITER = "Answer: (13 - 9) * (10 - 4) = 24"
 
 
@@ -75,8 +75,9 @@ class ScriptedLLM:
 
 
 def run_tot(llm, config=None):
-    return list(TreeOfThoughts().run(ITEM, Game24Task(), llm, seed=50,
-                                     config=config or {"breadth": 3, "keep": 2}))
+    # Small search (first 3 lines, keep 2, one score per node) unless a test asks otherwise.
+    settings = {"breadth": 3, "keep": 2, "value_samples": 1, **(config or {})}
+    return list(TreeOfThoughts().run(ITEM, Game24Task(), llm, seed=50, config=settings))
 
 
 def of_type(events, kind):
@@ -141,8 +142,8 @@ def test_search_builds_scores_prunes_and_writes():
         ("n4", "n1", "4 6"), ("n5", "n1", "8 10"),
         ("n6", "n4", "24"), ("n7", "n5", "18")]
     scored = {s.node_id: (s.label, s.score) for s in of_type(events, NodeScored)}
-    assert scored["n1"] == ("sure", 1.0)
-    assert scored["n2"] == ("likely", 0.5)
+    assert scored["n1"] == ("sure", 20.0)                 # the paper's weights
+    assert scored["n2"] == ("likely", 1.0)
     assert scored["n5"] == ("unknown", 0.0)               # no label in the reply
     assert [p.node_id for p in of_type(events, NodePruned)] == ["n3"]
 
@@ -202,6 +203,34 @@ def test_best_path_writer_keeps_the_preregistered_behaviour():
     assert of_type(events, LLMCall)[-1].role == "writer"
     assert of_type(events, PathChosen)[0].node_ids == ["root", "n1", "n4", "n6"]
     assert events[-1].answer == "(13 - 9) * (10 - 4)"
+
+
+def test_paper_search_all_lines_three_samples_and_summed_weights():
+    llm = ScriptedLLM()
+    events = run_tot(llm, {"breadth": 0, "keep": 5, "value_samples": 3})
+    added = of_type(events, NodeAdded)
+    assert [n.state for n in added if n.depth == 1] == ["4 4 10", "6 9 13", "10 13 13",
+                                                         "4 13 90"]   # every line, not 3
+    scored = {s.node_id: s for s in of_type(events, NodeScored)}
+    assert (scored["n1"].score, scored["n1"].label) == (60.0, "sure, sure, sure")
+    assert scored["n3"].score == pytest.approx(0.003)
+    scorer_calls = [c for c in of_type(events, LLMCall) if c.role == "scorer"]
+    assert all(len(c.responses) == 3 for c in scorer_calls)       # one call, three samples
+    assert of_type(events, NodePruned) == []                      # 4 <= keep 5
+    assert of_type(events, PathChosen)[0].node_ids == ["root", "n1", "n5", "n7"]
+
+
+def test_repeated_state_is_scored_once_and_duplicate_lines_are_skipped():
+    proposals = {**PROPOSALS, "4 9 10 13": "13 - 9 = 4 (left: 4 4 10)\n"
+                                            "13 - 9 = 4 (left: 4 4 10)\n"
+                                            "9 - 4 - 1 = 4 (left: 4 4 10)"}
+    llm = ScriptedLLM(proposals)
+    events = run_tot(llm, {"breadth": 0, "keep": 5})
+    level1 = [n for n in of_type(events, NodeAdded) if n.depth == 1]
+    assert [n.step for n in level1] == ["13 - 9 = 4", "9 - 4 - 1 = 4"]   # duplicate line skipped
+    scored = [s for s in of_type(events, NodeScored) if s.node_id in {n.node_id for n in level1}]
+    assert [s.call_id is None for s in scored] == [False, True]          # same state: cached
+    assert scored[1].score == scored[0].score and scored[1].label.endswith("(cached)")
 
 
 def test_unknown_writer_mode_is_rejected():

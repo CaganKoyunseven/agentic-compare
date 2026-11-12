@@ -25,20 +25,24 @@ max_attempts = 3
 [approaches.multi_agent]
 max_rounds = 2
 
-# Tree of Thoughts: each kept node proposes steps, the first `breadth` readable ones become
-# children, each child gets one LLM score, and the best `keep` of the level survive.
+# Tree of Thoughts, Game of 24 (as in the paper's code): each kept node proposes steps; every
+# readable line becomes a child (breadth 0; a number N keeps only the first N lines); each
+# child gets `value_samples` judgements in one call (weights sure 20, likely 1, impossible
+# 0.001, summed); the best `keep` of the level survive. game24_writer "reached_24" writes an
+# answer only from a kept leaf whose numbers left are 24. The first test run used breadth 3,
+# keep 3, one judgement and a writer on the best path (see README, Limitations).
 # HumanEval: `humaneval_breadth` plans (one call each), each scored once; the best
 # `humaneval_keep` become code in score order until one passes the own tests.
-# game24_writer: "reached_24" writes an answer only from a kept leaf whose numbers left are 24
-# (as in the paper's code); "best_path" was used in the first test runs (see README).
 [approaches.tot]
-breadth = 3
-keep = 3
+breadth = 0
+keep = 5
+value_samples = 3
 humaneval_breadth = 3
 humaneval_keep = 2
 game24_writer = "reached_24"
 
 # Self-consistency (separate study, Game of 24 only, never in the main results): `samples`
-# independent baseline calls (= ToT's call budget), answer by majority vote, no verifier.
+# independent baseline calls (29 = the call budget of our first, lighter ToT), answer by
+# majority vote, no verifier.
 [approaches.self_consistency]
 samples = 29
