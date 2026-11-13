@@ -296,12 +296,14 @@ function canDraw() {
 }
 
 // ---- Demo and results tabs ----
-// "results" shows the main comparison; "sc" the separate self-consistency study (own folder).
+// "results" shows the main comparison; "sc" and "fs" the separate self-consistency and
+// feedback studies (each in its own folder).
 
-const TABS = ["demo", "results", "sc"];
+const TABS = ["demo", "results", "sc", "fs"];
 const resultViews = {
   results: { section: "results", tab: "tab-results" },
   sc: { section: "results-sc", tab: "tab-sc" },
+  fs: { section: "results-fs", tab: "tab-fs" },
 };
 resultViews.results.view = new ResultsView($("results"), {
   onFake: (fake) => {
@@ -314,6 +316,14 @@ resultViews.sc.view = new ResultsView($("results-sc"), {
   emptyText: "No self-consistency results yet",
   onFake: (fake) => {
     if (state.tab === "sc") $("label-mock").hidden = !fake;
+  },
+  onError: (message) => showBanner(message),
+});
+resultViews.fs.view = new ResultsView($("results-fs"), {
+  section: "feedback_study",
+  emptyText: "No feedback study results yet",
+  onFake: (fake) => {
+    if (state.tab === "fs") $("label-mock").hidden = !fake;
   },
   onError: (message) => showBanner(message),
 });
@@ -425,6 +435,7 @@ bindButton("btn-stay", stayLive);
 bindButton("tab-demo", () => showTab("demo"));
 bindButton("tab-results", () => showTab("results"));
 bindButton("tab-sc", () => showTab("sc"));
+bindButton("tab-fs", () => showTab("fs"));
 window.addEventListener("resize", () => columns.forEach((c) => c.afterLayout()));
 $("help").addEventListener("click", (e) => {
   if (e.target === $("help")) toggleHelp(false);
