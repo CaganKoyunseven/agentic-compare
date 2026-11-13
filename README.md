@@ -747,7 +747,7 @@ column; no approach ever sees it.
   from a curated pool. All demo puzzles come from the dev split.
 - **Live and replay** share the same event stream. Replay works offline and can run faster
   (0.5x to 8x).
-- **Tabs:** Demo, Results (figures from `results/`), Self-consistency.
+- **Tabs:** Demo, Results (figures from `results/`), Self-consistency, Feedback study.
 - The demo uses the benchmark settings, so a live Game of 24 scene takes about 2-3 minutes,
   most of it in the Tree of Thoughts column. Demo runs are never mixed into the results.
 
