@@ -404,3 +404,27 @@ def test_self_consistency_section_empty_and_unknown_sections(results_client):
     assert results_client.get("/api/results/secret").status_code == 404
     assert results_client.get("/results/secret/success.png").status_code == 404
     assert results_client.get("/results/self_consistency/..%2Fsuccess.png").status_code == 404
+
+
+# ---- separate feedback study results (own folder, own tab) ----
+
+def test_feedback_study_section_lists_and_serves_its_own_folder(results_client, results_dir):
+    fs = results_dir / "feedback_study"
+    fs.mkdir()
+    (fs / "fs_cost_accuracy.png").write_bytes(PNG)
+    (fs / "fs_success.png").write_bytes(PNG)
+    (fs / "report.md").write_text("# Feedback study\n", encoding="utf-8")
+
+    listing = results_client.get("/api/results/feedback_study").json()
+    assert listing == {"figures": ["fs_success.png", "fs_cost_accuracy.png"], "report": True}
+    assert results_client.get("/results/feedback_study/fs_success.png").content == PNG
+    assert "Feedback study" in results_client.get("/results/feedback_study/report.md").text
+    # The main section does not show the separate study's files, and vice versa.
+    assert "fs_success.png" not in results_client.get("/api/results").json()["figures"]
+    assert results_client.get("/results/feedback_study/success.png").status_code == 404
+
+
+def test_feedback_study_section_empty(results_client):
+    assert results_client.get("/api/results/feedback_study").json() == {"figures": [],
+                                                                       "report": False}
+    assert results_client.get("/results/feedback_study/..%2Fsuccess.png").status_code == 404

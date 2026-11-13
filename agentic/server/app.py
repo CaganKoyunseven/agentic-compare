@@ -40,7 +40,10 @@ FIGURE_ORDER = ("success.png", "cumulative.png", "rep_spread.png", "paired.png",
                 "cost_vs_accuracy.png", "time_and_calls.png")
 # Separate studies: own subfolder of the results folder, own tab, never mixed with the main
 # results. Section name -> figure order.
-RESULT_SECTIONS = {"self_consistency": ("sc_success.png", "sc_k_curve.png")}
+RESULT_SECTIONS = {
+    "self_consistency": ("sc_success.png", "sc_k_curve.png"),
+    "feedback_study": ("fs_success.png", "fs_cost_accuracy.png"),
+}
 RESULT_TYPES = {".png": "image/png", ".md": "text/markdown; charset=utf-8"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
