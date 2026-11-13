@@ -6,6 +6,11 @@ Game of 24 and HumanEval. For every run we record the accuracy, the cost (tokens
 and the wall time. A live web demo runs the four approaches side by side, and it can replay
 recorded runs without a model or a network.
 
+![The demo: four approaches on the same Game of 24 puzzle](media/demo.png)
+
+*The demo replaying a recorded Hard 24 scene: Baseline, Reflective and Multi-agent are wrong;
+Tree of Thoughts finds a path to 24 (green) after 73 calls.*
+
 **The goal is not to find the best approach.** We want to show how each approach works, where
 its gains come from and what they cost, so that one can decide which approach is worth it for
 which kind of task. "Approach X gained this much, and this is what it spent" is the kind of
@@ -61,8 +66,13 @@ What we take from this:
   recorded samples, checking 10 plain answers and keeping a correct one would have solved 57.8%
   of the runs with about 3,400 tokens, about as often as Tree of Thoughts with about 24,600
   (exploratory, see [What more attempts would buy](#what-more-attempts-would-buy-exploratory)).
-  Without a checker, the model has to judge its own partial solutions, and that is what Tree of
-  Thoughts spends most of its tokens on.
+  A separate run of this retry strategy confirmed it: 57.2% with about 2,200 tokens
+  ([Feedback study](#feedback-study-separate-study-1)). Without a checker, the model has to judge
+  its own partial solutions, and that is what Tree of Thoughts spends most of its tokens on.
+- **The verifier, not the loop, carries Reflective.** With the model checking its own answers
+  instead of the verifier, the same loop reached 28.3% instead of 39.4%. The model often
+  rejected answers that were right. A paper-like debate of three agents (30.0%) was no better
+  than our Multi-agent approach, at about 3.8 times the tokens.
 - **Without a checker, wide search beat voting.** Tree of Thoughts and self-consistency (29
   plain samples and a majority vote) both work without the verifier. Tree of Thoughts beat the
   vote by 22.2 points (95% CI [+8.9, +35.6]) with about 2.5 times the tokens. The vote had
@@ -77,7 +87,8 @@ What we take from this:
   between them are within noise.
 
 Full tables: [`results/report.md`](results/report.md). Self-consistency study:
-[`results/self_consistency/report.md`](results/self_consistency/report.md). Trace analysis of
+[`results/self_consistency/report.md`](results/self_consistency/report.md). Feedback study:
+[`results/feedback_study/report.md`](results/feedback_study/report.md). Trace analysis of
 Game of 24: [`results/game24_analysis.md`](results/game24_analysis.md).
 
 ## Quick start (replay demo, about 5 minutes)
@@ -248,6 +259,22 @@ No verifier, no search. It asks: does Tree of Thoughts gain from its search, or 
 making many calls? It is reported only in `results/self_consistency/`, never in the main
 comparison.
 
+### Feedback study (separate study)
+
+Three more approaches on Game of 24 only, added after the main test runs. They ask how much of
+the gains come from the exact verifier, and how a paper-like multi-agent setup compares with
+ours. They are reported only in `results/feedback_study/`, never in the main comparison.
+
+- **Self-Refine (own check):** the Reflective loop (at most 3 answers, critique, revise), but
+  the model checks its own answer instead of seeing the verifier result. Its check ends with
+  `VERDICT: CORRECT` or `VERDICT: WRONG`, and the loop stops when the model accepts its answer
+  (after Madaan et al., 2023).
+- **Debate:** 3 agents answer independently; in the second round each agent sees the other
+  agents' answers and gives an updated answer; the final answer is the majority vote over the
+  last answers. No verifier. 3 agents and 2 rounds are the main setting of Du et al., 2023.
+- **Retry with the verifier:** the plain Baseline prompt again and again, each call with its own
+  seed, until the verifier accepts an answer, at most 10 times. No critique, no search.
+
 ### Who sees what feedback
 
 | | Baseline | Reflective | Multi-agent | Tree of Thoughts |
@@ -285,6 +312,25 @@ Items solved (correct in at least half the repetitions) compared with Baseline:
 | Tree-of-Thoughts | 22 | 3 | 8 | 27 |
 
 ![Paired comparison](results/paired.png)
+
+### Accuracy by difficulty (Game of 24)
+
+Each puzzle has a difficulty tier from its number of solution paths (tertiles over all 1362
+puzzles); the test split has 20 puzzles per tier. 95% bootstrap CI over the items of the tier.
+
+| Approach | Easy | Medium | Hard |
+|---|---|---|---|
+| Baseline | 30% [13, 48] | 28% [13, 43] | 7% [2, 13] |
+| Reflective | 57% [40, 73] | 40% [22, 58] | 22% [12, 33] |
+| Multi-agent | 40% [23, 57] | 33% [18, 50] | 12% [2, 25] |
+| Tree-of-Thoughts | 68% [55, 80] | 58% [42, 75] | 35% [22, 48] |
+
+![Accuracy by difficulty](results/game24_difficulty.png)
+
+The order of the approaches is the same in every tier. Tree of Thoughts gains 28-38 points over
+Baseline in each tier, so its gain does not shrink on hard puzzles; on hard puzzles it solves 35%
+against Baseline's 7%. With 20 puzzles per tier the intervals are wide, so read this as a
+pattern, not as a precise measurement.
 
 ### Cost and budget
 
@@ -351,7 +397,8 @@ This is computed after the fact from the same recorded samples, not from separat
 this retry strategy is not our Reflective approach (it has no critique step). It shows how much
 an exact checker is worth: with it, plain retries reach Tree of Thoughts' accuracy at a fraction
 of its tokens. Tree of Thoughts does not use the checker; its scorer is the model judging
-itself.
+itself. The feedback study later ran this strategy for real (at most 10 answers) and measured
+57.2%, close to the 57.8% estimated here.
 
 ### Self-consistency (separate study)
 
@@ -376,9 +423,50 @@ samples at all.
 
 ![Self-consistency by number of samples](results/self_consistency/sc_k_curve.png)
 
-More figures: `results/cumulative.png` (accuracy as items are added, over 200 random orders),
+### Feedback study (separate study)
+
+Game of 24, the same 60 test items and 3 repetitions. The main approaches are shown for
+comparison.
+
+| Game of 24 | Sees the verifier | Accuracy [95% CI] | LLM calls | Tokens | Tokens per correct answer | USD per 1,000 runs |
+|---|---|---|---|---|---|---|
+| Baseline | no | 21.7% [13.3, 30.6] | 1.0 | 335 | 1,547 | 0.18 |
+| Reflective | yes | 39.4% [30.0, 48.9] | 3.9 | 1,503 | 3,811 | 0.67 |
+| Multi-agent | yes | 28.3% [19.4, 37.8] | 4.5 | 1,417 | 4,999 | 0.50 |
+| Tree-of-Thoughts | no | 53.9% [45.0, 62.8] | 64.3 | 24,555 | 45,566 | 7.01 |
+| Self-Refine (own check) | no | 28.3% [20.0, 37.2] | 5.6 | 2,694 | 9,508 | 1.17 |
+| Debate (3 agents, 2 rounds) | no | 30.0% [21.1, 39.4] | 6.0 | 5,370 | 17,901 | 1.76 |
+| Retry with the verifier (max 10) | yes | 57.2% [47.2, 67.8] | 5.8 | 2,161 | 3,777 | 1.16 |
+
+Paired differences in percentage points (95% bootstrap CI over items):
+
+| Comparison | Difference | What it isolates |
+|---|---|---|
+| Reflective minus Self-Refine | +11.1 [+2.8, +19.4] | the verifier in place of the model's own check |
+| Self-Refine minus Baseline | +6.7 [-0.6, +13.9] | a loop without outside feedback |
+| Debate minus Baseline | +8.3 [+1.1, +15.6] | several agents without outside feedback |
+| Debate minus Multi-agent | +1.7 [-7.8, +10.6] | the paper's debate against our roles |
+| Retry minus Reflective | +17.8 [+9.4, +26.7] | more plain tries instead of critique (10 calls against 5) |
+| Retry minus Tree-of-Thoughts | +3.3 [-8.9, +16.1] | verifier retries against search without it |
+
+Only Retry minus Reflective is above the 15-point noise level, and those two did not have the
+same call limit (10 against 5). Their tokens per correct answer are about the same (3,777 and
+3,811).
+
+How often the model's own check in Self-Refine was right:
+
+| The model said | Answer really correct | Answer really wrong |
+|---|---|---|
+| correct (38 checks) | 36 | 2 |
+| wrong (463 checks) | 55 | 408 |
+
+![Feedback study next to the main approaches](results/feedback_study/fs_success.png)
+
+More figures: `results/game24_difficulty.png` (accuracy by difficulty tier),
+`results/cumulative.png` (accuracy as items are added, over 200 random orders),
 `results/rep_spread.png` (accuracy of each repetition), `results/time_and_calls.png`,
-`results/self_consistency/sc_success.png`, `results/game24_tot_funnel.png`.
+`results/self_consistency/sc_success.png`, `results/game24_tot_funnel.png`,
+`results/feedback_study/fs_cost_accuracy.png` (accuracy against tokens, feedback study).
 
 ## Why the results look like this
 
@@ -469,6 +557,28 @@ samples would probably not have closed the gap; we did not measure it. With the 
 our first and lighter Tree of Thoughts was no better than the vote, so the search helps only
 when it is wide enough.
 
+### Feedback study: the checker matters more than the loop
+
+- **The model's own check is too strict, not too lenient.** When it accepted an answer, the
+  answer was right in 36 of 38 checks. But it rejected 55 of the 91 right answers it checked,
+  and then revised them. In 72 of the 180 Self-Refine runs one of the answers was right, but
+  only 51 runs ended with a right answer: 21 runs dropped a right answer. Had the loop stopped
+  at every right answer, it would have reached 40.0% (72 of 180), about the same as Reflective
+  with the verifier (39.4%). So most of the gap between Reflective and Self-Refine is the check,
+  not the critique and repair. This fits Huang et al. (2023): without outside feedback, models
+  struggle to correct their own reasoning.
+- **Debate adds little here.** Three agents that see each other's answers gained 8 points over
+  Baseline and ended close to our Multi-agent approach, with no verifier but about 3.8 times
+  its tokens. On a puzzle with one exact answer, agents that share wrong expressions can also
+  agree on a wrong one, like the majority vote in self-consistency.
+- **With an exact checker, plain retries are hard to beat.** Retry asks the same plain question
+  again and stops when the verifier says yes. It reached Tree of Thoughts' accuracy with about
+  a tenth of its tokens, and it beat Reflective, which spends calls on critique instead of new
+  tries. This is the brute-force effect described in
+  [Results at a glance](#results-at-a-glance): it shows the value of the checker, not of
+  reflection, and it does not make Tree of Thoughts worse, since Tree of Thoughts never sees
+  the checker.
+
 ### HumanEval: close to the ceiling
 
 Baseline already solves 74%. Every agentic approach gains 15-20 points by checking its code
@@ -511,6 +621,10 @@ results too.
 7. **Safer code execution.** HumanEval code now runs in a bubblewrap sandbox. All 164
    reference solutions pass their official tests in it, and re-scoring the HumanEval answers
    recorded before the change gave the same result for every run.
+8. **Feedback study added** (13 Nov 2026) as a second separate study on Game of 24:
+   Self-Refine with the model's own check, Debate after Du et al., and Retry with the verifier.
+   Their settings were fixed before the test run, after one short dev check of the prompts and
+   the verdict format.
 
 ## How the code works
 
@@ -554,6 +668,8 @@ and why is written to `results/validation.md`.
 - `scripts/analyze_game24.py`: error types, Tree of Thoughts scorer calibration, step
   correctness and the funnel of where the search lost the solution.
 - `agentic/analysis/self_consistency.py`: the separate self-consistency study.
+- `agentic/analysis/feedback_study.py`: the separate feedback study (its own validation, tables,
+  self-check counts and figures).
 
 ### Demo server
 
@@ -596,6 +712,9 @@ python -m agentic.runner --task humaneval --split test
 # Self-consistency runs only when named
 python -m agentic.runner --task game24 --split test --approach self_consistency
 
+# Feedback study, also only when named (Game of 24 only)
+python -m agentic.runner --task game24 --split test --approach self_refine,debate,retry
+
 # Validate all traces and rebuild results/
 python -m scripts.update_results
 
@@ -608,7 +727,8 @@ experiment folder), `--no-update` (do not rebuild `results/` after a test run).
 
 Rough cost of the full test runs at the prices above: the four main approaches on both tasks
 about 1.2 USD; Tree of Thoughts on Game of 24 alone about 1.3 USD; self-consistency about
-0.9 USD. The whole project, including dev runs, reruns and demo recordings, used about 3.9 USD.
+0.9 USD; the feedback study about 0.74 USD. The whole project, including dev runs, reruns and
+demo recordings, used about 4.7 USD.
 
 Tests: `pip install -r requirements-dev.txt`, then `python -m pytest -q` and
 `python -m ruff check .`.
@@ -650,12 +770,13 @@ column; no approach ever sees it.
 ```
 agentic/
   approaches/      baseline.py, reflective.py, multi_agent.py, tot.py, self_consistency.py;
+                   self_refine.py, debate.py, retry.py (feedback study);
                    base.py holds the Approach contract and the Caller (seeds, call ids)
   tasks/           game24.py (exact fraction checker, difficulty tiers),
                    humaneval.py (official tests stay private), base.py (Task contract)
   llm/             openai_api.py, ollama.py, backend.py (picks one from .env), base.py
   prompts/         one text file per approach, role and task
-  analysis/        validate.py, stats.py, plots.py, self_consistency.py
+  analysis/        validate.py, stats.py, plots.py, self_consistency.py, feedback_study.py
   server/          app.py (FastAPI + SSE), live.py (live runs), sessions.py, static/ (page)
   events.py        event types of the trace
   traces.py        reading and writing JSONL traces
@@ -671,8 +792,9 @@ data/
   game24/          24.csv (1362 puzzles) and its licence
   humaneval/       HumanEval.jsonl.gz (164 problems) and its licence
   splits/          dev/test split of Game of 24 (HumanEval splits are fixed in code)
+media/             images for this README
 results/           runs.csv, report.md, validation.md, figures, game24_analysis.md,
-                   self_consistency/
+                   self_consistency/, feedback_study/
 traces/
   examples/        recorded demo scenes (replay mode)
   runs/            benchmark traces (not committed, too large)
@@ -699,9 +821,9 @@ tests/             unit tests (pytest)
   results answer "what does each approach gain in its usual setting, and at what cost", not
   "which approach wins at equal cost". We cannot say that Tree of Thoughts is more expensive
   than Reflective for the same accuracy. Giving Reflective the same budget would mostly let it
-  try again and again against the exact verifier; the best-of-k estimate above suggests that
-  this would be much cheaper than Tree of Thoughts, but it would measure access to the
-  verifier more than reflection.
+  try again and again against the exact verifier; the Retry run of the feedback study shows
+  that this is much cheaper than Tree of Thoughts, but it measures access to the verifier more
+  than reflection.
 - **Unequal access to feedback, by design.** On Game of 24, Reflective and Multi-agent see the
   exact verifier result; Baseline and Tree of Thoughts do not. Part of the Reflective gain is
   therefore outside feedback, not the loop alone.
@@ -720,8 +842,18 @@ tests/             unit tests (pytest)
   simpler implementations with small round limits.
 - **Self-consistency is not budget-matched** to the final Tree of Thoughts (29 calls against
   64), so compare them by tokens per correct answer.
+- **The feedback study came after the main results.** Its three approaches were designed after
+  we had seen the main results, to explain them, so it is kept separate. Self-Refine and Debate
+  are our own short versions of the papers' methods (3 answers; 3 agents and 2 rounds), with
+  our own prompts, and Retry had a higher call limit (10) than Reflective (5).
 - **HumanEval is close to the ceiling** for this model, so differences between the agentic
   approaches there are small and within noise.
+- **Possible training-data contamination.** HumanEval has been public since 2021 and is very
+  likely part of the model's training data, so part of the high Baseline score (74%) may be
+  memory rather than problem solving. The Game of 24 puzzle file has been public since 2023 as
+  well; the low Baseline score there (22%) suggests that the model does not simply remember the
+  answers. Contamination would affect all approaches alike, but it limits what HumanEval says
+  about reasoning.
 - **Wall time** with a cloud API includes network and server load. Tokens and LLM calls are
   the main cost measures.
 
