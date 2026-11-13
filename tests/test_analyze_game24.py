@@ -96,3 +96,20 @@ class _Mixed:
         prompt = messages[-1]["content"]
         target = self.fake if prompt.startswith("Use the numbers") else self.tot
         return target.chat(messages, seed=seed)
+
+
+def test_accuracy_by_difficulty_uses_items_of_each_tier(tmp_path):
+    rows = ["run_id,task,approach,item_id,difficulty,rep,correct"]
+    for item, tier, base, tot in (("a", "easy", 1, 1), ("b", "easy", 0, 1), ("c", "hard", 0, 0),
+                                  ("d", "hard", 0, 1)):
+        rows += [f"b-{item},game24,baseline,{item},{tier},0,{base}",
+                 f"t-{item},game24,tot,{item},{tier},0,{tot}",
+                 f"h-{item},humaneval,tot,{item},,0,1"]          # other tasks are ignored
+    csv_path = tmp_path / "runs.csv"
+    csv_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    table = an.accuracy_by_difficulty(csv_path)
+    got = {(r.difficulty, r.approach): (r.mean, r.n_items) for r in table.itertuples()}
+    assert got == {("easy", "baseline"): (0.5, 2), ("easy", "tot"): (1.0, 2),
+                   ("hard", "baseline"): (0.0, 2), ("hard", "tot"): (0.5, 2)}
+    text = an.difficulty_markdown(table)
+    assert "| Tree-of-Thoughts | 100% [100, 100] | 50% [0, 100] |" in text
