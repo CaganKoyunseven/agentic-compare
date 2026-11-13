@@ -35,9 +35,12 @@ from typing import Any
 
 from agentic.approaches.base import Approach
 from agentic.approaches.baseline import Baseline
+from agentic.approaches.debate import Debate
 from agentic.approaches.multi_agent import MultiAgent
 from agentic.approaches.reflective import Reflective
+from agentic.approaches.retry import Retry
 from agentic.approaches.self_consistency import SelfConsistency
+from agentic.approaches.self_refine import SelfRefine
 from agentic.approaches.tot import TreeOfThoughts
 from agentic.config import ROOT, load_toml, machine_id, model_name
 from agentic.events import FinalAnswer, LLMCall, RunEnd, RunStamp, RunStart
@@ -52,10 +55,14 @@ from agentic.traces import TraceWriter, group_runs, read_trace
 
 ORDER = ["baseline", "reflective", "multi_agent", "tot"]    # the main comparison ("all")
 # Separate studies: run only when named, never part of "all" or of the main results.
-SEPARATE = ["self_consistency"]
+# Feedback study (Game of 24): self_refine, debate, retry.
+FEEDBACK_STUDY = ["self_refine", "debate", "retry"]
+SEPARATE = ["self_consistency", *FEEDBACK_STUDY]
 APPROACHES: dict[str, Approach] = {"baseline": Baseline(), "reflective": Reflective(),
                                    "multi_agent": MultiAgent(), "tot": TreeOfThoughts(),
-                                   "self_consistency": SelfConsistency()}
+                                   "self_consistency": SelfConsistency(),
+                                   "self_refine": SelfRefine(), "debate": Debate(),
+                                   "retry": Retry()}
 TASKS: dict[str, type] = {"game24": Game24Task, "humaneval": HumanEvalTask}
 TRACES_DIR = ROOT / "traces" / "runs"
 CSV_COLUMNS = ["run_id", "task", "approach", "item_id", "difficulty", "rep", "split", "correct",
@@ -263,7 +270,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--split", required=True, choices=["dev", "test"])
     parser.add_argument("--approach", default="all",
                         help="'all' (default, the main four) or a comma list, e.g. "
-                             "baseline,tot; self_consistency only when named")
+                             "baseline,tot; separate studies (self_consistency, self_refine, debate, "
+                             "retry) only when named")
     parser.add_argument("--reps", type=int, help="repetitions (default from experiment.toml)")
     parser.add_argument("--limit", type=int, help="only the first N items of the split")
     parser.add_argument("--tag", default="", help="suffix for a new experiment folder")

@@ -1,0 +1,5 @@
+These are the answers to the problem from other agents:
+
+{others}
+
+Using the reasoning from the other agents as additional advice, can you give an updated answer? Examine your own answer and the answers of the other agents step by step. Use the numbers {numbers} and the operations + - * / to make 24, each number exactly once. Write your final answer on the last line as a single expression.

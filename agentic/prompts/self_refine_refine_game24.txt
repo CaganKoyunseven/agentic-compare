@@ -1,0 +1,7 @@
+Use the numbers {numbers} and the operations + - * / to make 24. Use each number exactly once. You may use parentheses.
+
+Your previous answer may be wrong.
+Previous answer: {answer}
+Review: {critique}
+
+Write a new answer. Write your final answer on the last line as a single expression.
