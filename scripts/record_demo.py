@@ -3,7 +3,7 @@
 Runs the four approaches with the demo settings (configs/demo.toml) and writes one trace per
 scene into traces/examples/: fixed scenes as <scene>.jsonl, pool puzzles as
 pool-<item>.jsonl. These are the replays the page falls back to when live mode fails, so run
-this on the presentation laptop after the demo settings are final, then commit the files.
+this after the demo settings are final, then commit the files.
 
 Usage: python -m scripts.record_demo [--only easy24,pool-game24-0043] [--out traces/examples]
 """
