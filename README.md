@@ -868,6 +868,9 @@ tests/             unit tests (pytest)
   Our approaches and prompts are our own. The Tree of Thoughts prompts for Game of 24
   (`agentic/prompts/game24_tot_*.txt`) follow the step format of the paper
   ("a op b = c (left: ...)", sure/likely/impossible) with our own wording and examples.
+  The Debate update prompt (`agentic/prompts/debate_update_game24.txt`) adapts the wording of
+  the update prompt in the code of Du et al. (2023) ("These are the ... from other agents",
+  "Using the reasoning from other agents as additional advice, can you give an updated answer?").
 - **HumanEval:** `data/humaneval/HumanEval.jsonl.gz`, 164 Python problems from OpenAI,
   repository [openai/human-eval](https://github.com/openai/human-eval), MIT licence (copy in
   `data/humaneval/LICENSE`). Re-download with `python -m scripts.fetch_humaneval`. Final scores
