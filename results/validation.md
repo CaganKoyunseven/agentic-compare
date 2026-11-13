@@ -1,6 +1,6 @@
 # Result validation
 
-Generated 2026-11-12 12:47 +03 by `python -m scripts.update_results`.
+Generated 2026-11-13 10:41 +03 by `python -m scripts.update_results`.
 
 Expected: model `gpt-4o-mini-2024-07-18`, split `test`, mode `benchmark`, 3 reps, approaches baseline, reflective, multi_agent, tot, settings from `configs/experiment.toml`.
 
@@ -42,5 +42,5 @@ None.
 
 | Reason | Experiments |
 |---|---|
-| dev split (tuning only) | 13 |
-| separate study (see self_consistency/) | 1 |
+| dev split (tuning only) | 14 |
+| separate study (see self_consistency/, feedback_study/) | 4 |
