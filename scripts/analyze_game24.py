@@ -4,8 +4,9 @@ Run: python -m scripts.analyze_game24 [--runs <dir>] [--results <runs.csv>] [--o
 
 Reads only the traces (the single source of truth) and only the runs listed in the validated
 results table, so it describes exactly the runs behind the main results. No model calls.
-Writes results/game24_analysis.md and results/game24_tot_funnel.png. Called by
-scripts/update_results after the main results are rebuilt.
+Writes results/game24_analysis.md, results/game24_tot_funnel.png and
+results/game24_difficulty.png. Called by scripts/update_results after the main results are
+rebuilt.
 
   1. Error types: the official check's message for every wrong final answer, per approach.
   2. ToT scorer: for every scored node, can its numbers left (as the model wrote them)
@@ -16,6 +17,7 @@ scripts/update_results after the main results are rebuilt.
      right and its numbers can still make 24), or where all sound nodes were pruned.
   5. Proposals beyond the first `breadth`: at the root, would more of the proposer's own lines
      have given a sound step? Exploratory: the paper keeps every proposed line.
+  6. Accuracy by difficulty tier (easy, medium, hard), from the validated results table.
 """
 
 import argparse
@@ -30,8 +32,10 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
-from agentic.analysis.plots import COLORS, DPI, FIGSIZE, STYLE
+from agentic.analysis.plots import COLORS, DPI, FIGSIZE, LABELS, STYLE
+from agentic.analysis.stats import success_rate
 from agentic.approaches.tot import ALL_LINES, parse_steps
 from agentic.approaches.tot import DEFAULTS as TOT_DEFAULTS
 from agentic.config import ROOT
@@ -44,6 +48,8 @@ from scripts.smoke_test import parse_state, valid_step
 RESULTS_DIR = ROOT / "results"
 REPORT = "game24_analysis.md"
 FIGURE = "game24_tot_funnel.png"
+DIFFICULTY_FIGURE = "game24_difficulty.png"
+TIERS = ("easy", "medium", "hard")
 APPROACHES = ("baseline", "reflective", "multi_agent", "tot")
 KINDS = ("right numbers, value not 24", "wrong numbers used", "unreadable or not allowed",
          "division by zero", "no answer")
@@ -242,6 +248,84 @@ def plot_funnel(tot: dict, out_path: Path) -> Path:
     return out_path
 
 
+# ---- 6. Accuracy by difficulty ----
+
+def accuracy_by_difficulty(results_csv: Path) -> pd.DataFrame:
+    """Accuracy per (difficulty, approach) with a 95% bootstrap CI over the items of the tier."""
+    df = pd.read_csv(results_csv)
+    df = df[df["task"] == "game24"]
+    parts = []
+    for tier in TIERS:
+        rows = df[df["difficulty"] == tier]
+        if len(rows):
+            parts.append(success_rate(rows).assign(difficulty=tier))
+    if not parts:
+        return pd.DataFrame(columns=["difficulty", "approach", "mean", "ci_low", "ci_high",
+                                     "n_items"])
+    table = pd.concat(parts, ignore_index=True)
+    return table[["difficulty", "approach", "mean", "ci_low", "ci_high", "n_items"]]
+
+
+def _approach_label(approach: str) -> str:
+    return LABELS["approach"].get(approach, approach)
+
+
+def difficulty_markdown(table: pd.DataFrame) -> str:
+    tiers = [t for t in TIERS if t in set(table["difficulty"])]
+    if not tiers:
+        return ""
+    cell = {(r.difficulty, r.approach): r for r in table.itertuples()}
+    n_items = {t: int(table[table["difficulty"] == t]["n_items"].max()) for t in tiers}
+    lines = ["## Accuracy by difficulty", "",
+             ("Difficulty tiers come from the number of solution paths of each puzzle (tertiles "
+              "over all 1362 puzzles; easy puzzles have the most paths). Mean accuracy over all "
+              "repetitions; 95% bootstrap CI over the items of the tier."), "",
+             "| Approach | " + " | ".join(f"{t} ({n_items[t]} items)" for t in tiers) + " |",
+             "|---" * (len(tiers) + 1) + "|"]
+    for approach in APPROACHES:
+        if not any((t, approach) in cell for t in tiers):
+            continue
+        values = []
+        for t in tiers:
+            r = cell.get((t, approach))
+            values.append("" if r is None else
+                          f"{100 * r.mean:.0f}% [{100 * r.ci_low:.0f}, {100 * r.ci_high:.0f}]")
+        lines.append(f"| {_approach_label(approach)} | " + " | ".join(values) + " |")
+    lines += ["", f"![{DIFFICULTY_FIGURE}]({DIFFICULTY_FIGURE})"]
+    return "\n".join(lines) + "\n"
+
+
+def plot_difficulty(table: pd.DataFrame, out_path: Path) -> Path:
+    tiers = [t for t in TIERS if t in set(table["difficulty"])]
+    approaches = [a for a in APPROACHES if a in set(table["approach"])]
+    width = 0.8 / max(1, len(approaches))
+    with matplotlib.rc_context(STYLE):
+        fig, ax = plt.subplots(figsize=FIGSIZE, dpi=DPI, layout="constrained")
+        for i, approach in enumerate(approaches):
+            rows = table[table["approach"] == approach].set_index("difficulty").reindex(tiers)
+            x = [k + (i - (len(approaches) - 1) / 2) * width for k in range(len(tiers))]
+            mean = 100 * rows["mean"]
+            err = [mean - 100 * rows["ci_low"], 100 * rows["ci_high"] - mean]
+            ax.bar(x, mean, width, color=COLORS.get(approach, "#9CA3AF"),
+                   label=_approach_label(approach), yerr=err, capsize=4,
+                   error_kw={"elinewidth": 1.5})
+            for xi, m, top in zip(x, mean, 100 * rows["ci_high"], strict=True):
+                ax.text(xi, top + 1.5, f"{m:.0f}%", ha="center", va="bottom", fontsize=9)
+        n_items = table.groupby("difficulty")["n_items"].max()
+        ax.set_xticks(range(len(tiers)), [f"{t.capitalize()}\n(n = {n_items[t]} items)"
+                                          for t in tiers])
+        ax.set_ylabel("Accuracy (%)")
+        ax.set_ylim(0, 105)
+        ax.grid(axis="y", linestyle="--", alpha=0.6)
+        ax.set_axisbelow(True)
+        fig.suptitle("Game of 24: accuracy by difficulty tier")
+        fig.legend(loc="outside lower center", ncols=len(approaches), frameon=False)
+        ax.set_title("Error bars: 95% bootstrap CI over the items of the tier", fontsize=10)
+        fig.savefig(out_path, dpi=DPI)
+        plt.close(fig)
+    return out_path
+
+
 def validated_run_ids(results_csv: Path) -> set[str]:
     with open(results_csv, encoding="utf-8", newline="") as f:
         return {row["run_id"] for row in csv.DictReader(f) if row["task"] == "game24"}
@@ -257,8 +341,12 @@ def write_analysis(runs_dir: Path, results_csv: Path, out_dir: Path,
         items = {i.item_id: i for i in Game24Task().load_items("all")}
     tot = tot_analysis(runs)
     report = out_dir / REPORT
-    report.write_text(report_markdown(error_types(runs, items), tot), encoding="utf-8",
-                      newline="\n")
+    by_difficulty = accuracy_by_difficulty(results_csv)
+    text = report_markdown(error_types(runs, items), tot)
+    if len(by_difficulty):
+        text += "\n" + difficulty_markdown(by_difficulty)
+        plot_difficulty(by_difficulty, out_dir / DIFFICULTY_FIGURE)
+    report.write_text(text, encoding="utf-8", newline="\n")
     if tot["funnel"]:
         plot_funnel(tot, out_dir / FIGURE)
     return report

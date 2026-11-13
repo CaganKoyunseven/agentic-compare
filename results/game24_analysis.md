@@ -52,3 +52,16 @@ A node is sound when every step on its path is right and its numbers can still m
 Root proposer calls with at least one sound step among the lines used (the first `breadth`, or all with `breadth = 0`): 156 of 180 (87%); among all lines the model wrote: 156 (87%). The paper's code uses every proposed line, as `breadth = 0` does; the first test run used `breadth = 3`.
 
 ![game24_tot_funnel.png](game24_tot_funnel.png)
+
+## Accuracy by difficulty
+
+Difficulty tiers come from the number of solution paths of each puzzle (tertiles over all 1362 puzzles; easy puzzles have the most paths). Mean accuracy over all repetitions; 95% bootstrap CI over the items of the tier.
+
+| Approach | easy (20 items) | medium (20 items) | hard (20 items) |
+|---|---|---|---|
+| Baseline | 30% [13, 48] | 28% [13, 43] | 7% [2, 13] |
+| Reflective | 57% [40, 73] | 40% [22, 58] | 22% [12, 33] |
+| Multi-agent | 40% [23, 57] | 33% [18, 50] | 12% [2, 25] |
+| Tree-of-Thoughts | 68% [55, 80] | 58% [42, 75] | 35% [22, 48] |
+
+![game24_difficulty.png](game24_difficulty.png)

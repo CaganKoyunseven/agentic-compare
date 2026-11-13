@@ -1,6 +1,6 @@
 # Self-consistency (separate study, Game of 24)
 
-Generated 2026-11-12 12:47 +03 by `python -m scripts.update_results`.
+Generated 2026-11-13 10:41 +03 by `python -m scripts.update_results`.
 
 This study is NOT part of the main results. It asks one question: does ToT's gain come from its search, or just from making many calls? Self-consistency makes 29 calls, each one the plain baseline prompt with its own seed, and answers by majority vote over the answers (spaces, extra parentheses and the order of + and * operands ignored; ties go to the answer seen first). It uses no verifier and no search. The number of calls matches our first, lighter ToT, not the paper-like ToT of the main results, so compare cost by tokens per correct answer.
 

@@ -11,8 +11,9 @@ The runner calls this automatically after a test-split experiment. Steps:
   4. Write results/runs.csv, results/validation.md (what was left out and why), and the
      figures plus report.md (scripts.make_report), and the Game of 24 error and ToT search
      analysis (scripts.analyze_game24).
-  5. Separate studies (self-consistency) never enter steps 2-4: their runs are skipped here
-     and get their own folder, results/self_consistency/ (agentic.analysis.self_consistency).
+  5. Separate studies never enter steps 2-4: their runs are skipped here and get their own
+     folders, results/self_consistency/ (agentic.analysis.self_consistency) and
+     results/feedback_study/ (agentic.analysis.feedback_study).
 """
 
 import argparse
@@ -22,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agentic.analysis import stats
+from agentic.analysis.feedback_study import update_feedback_study
 from agentic.analysis.self_consistency import update_self_consistency
 from agentic.analysis.validate import (
     Exclusion,
@@ -86,7 +88,7 @@ def collect(runs_dir: Path, expected: Expected):
             continue
         runs = [r for r in group_runs(records).values() if r[0][0].approach not in SEPARATE]
         if not runs:
-            not_used.append((source, "separate study (see self_consistency/)"))
+            not_used.append((source, "separate study (see self_consistency/, feedback_study/)"))
             continue
         task_name = first[0].task
         if task_name not in split_items:
@@ -178,12 +180,14 @@ def validation_markdown(expected: Expected, used, not_used, excluded: list[Exclu
 
 def update_results(runs_dir: Path = TRACES_DIR, out_dir: Path = RESULTS_DIR,
                    model: str | None = None, log=print) -> int:
-    """Rebuild out_dir from the traces, then the separate self-consistency folder (it reads
-    the new runs.csv for Baseline and ToT). Returns the number of runs in the main results."""
+    """Rebuild out_dir from the traces, then the separate study folders (they read the new
+    runs.csv for the main approaches). Returns the number of runs in the main results."""
     model = model or model_name()
     n = update_main(runs_dir, out_dir, model, log)
     update_self_consistency(runs_dir, out_dir / "self_consistency", out_dir / "runs.csv",
                             model, TASKS["game24"](), log)
+    update_feedback_study(runs_dir, out_dir / "feedback_study", out_dir / "runs.csv",
+                          model, TASKS["game24"](), log)
     return n
 
 

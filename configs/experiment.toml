@@ -46,3 +46,19 @@ game24_writer = "reached_24"
 # majority vote, no verifier.
 [approaches.self_consistency]
 samples = 29
+
+# Feedback study (separate study, Game of 24 only, never in the main results). Added after the
+# main test runs to answer how much of the gains come from the verifier and how a paper-like
+# multi-agent setup compares; see README.
+# Self-Refine: the Reflective loop with the model's own check instead of the verifier.
+[approaches.self_refine]
+max_attempts = 3
+
+# Debate (Du et al., 2023): agents answer, then see each other's answers; majority vote.
+[approaches.debate]
+agents = 3
+rounds = 2
+
+# Retry: plain baseline answers until the verifier accepts one.
+[approaches.retry]
+max_samples = 10

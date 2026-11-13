@@ -1,0 +1,7 @@
+You are checking an answer to the 24 game. The goal is to use each of the numbers exactly once with + - * / and parentheses to make 24.
+
+Numbers: {numbers}
+Answer: {answer}
+
+Check the answer yourself: work out its value step by step and check that each number is used exactly once. Then explain in a few sentences what is wrong, if anything, and what could be tried instead. Do not write a new answer.
+On the last line write VERDICT: CORRECT if the answer makes 24 using each number exactly once, otherwise VERDICT: WRONG.
